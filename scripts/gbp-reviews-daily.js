@@ -114,6 +114,7 @@ async function getAccessToken() {
 }
 
 // -------------------- GBP APIs --------------------
+
 // Locations: Business Information API v1
 async function listLocations(accessToken, accountId) {
   const out = [];
@@ -126,7 +127,8 @@ async function listLocations(accessToken, accountId) {
         headers: { Authorization: `Bearer ${accessToken}` },
         params: {
           pageSize: "100",
-          readMask: "name,title,storeCode",
+          // NEW: metadata.* mitziehen (mapsUri, newReviewUri, placeId)
+          readMask: "name,title,storeCode,metadata.mapsUri,metadata.newReviewUri,metadata.placeId",
           orderBy: "storeCode",
           pageToken,
         },
@@ -140,6 +142,17 @@ async function listLocations(accessToken, accountId) {
   } while (pageToken);
 
   return out;
+}
+
+// NEW: Fallback, falls metadata im List-Call nicht geliefert wird (oder leer ist)
+async function getLocationMetadata(accessToken, locationId) {
+  const j = await getJson(`https://mybusinessbusinessinformation.googleapis.com/v1/locations/${locationId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    params: {
+      readMask: "metadata.mapsUri,metadata.newReviewUri,metadata.placeId",
+    },
+  });
+  return j?.metadata || {};
 }
 
 // Reviews: My Business API v4
@@ -170,7 +183,6 @@ async function listReviewsForLocation(accessToken, accountId, locationId, startB
       const ct = r.createTime;
       if (!ct) continue;
 
-      // ct is RFC3339; Luxon handles Z/offset
       const dtBerlin = DateTime.fromISO(ct, { setZone: true }).setZone(TZ);
 
       if (dtBerlin.toMillis() >= startBerlin.toMillis()) anyGeStart = true;
@@ -183,7 +195,6 @@ async function listReviewsForLocation(accessToken, accountId, locationId, startB
     if (!anyGeStart) pagesBelowCutoff += 1;
     else pagesBelowCutoff = 0;
 
-    // cautious early break: two pages in a row entirely below cutoff
     if (pagesBelowCutoff >= 2) break;
 
     pageToken = j.nextPageToken || "";
@@ -319,6 +330,28 @@ async function main() {
 
     if (!locationId) return;
 
+    // NEW: Location-Metadaten (Maps-Link + Review-Link + PlaceId)
+    let maps_uri = loc?.metadata?.mapsUri || "";
+    let new_review_uri = loc?.metadata?.newReviewUri || "";
+    let place_id = loc?.metadata?.placeId || "";
+
+    // Fallback, falls im listLocations nicht befüllt
+    if (!maps_uri && !new_review_uri && !place_id) {
+      try {
+        const meta = await getLocationMetadata(accessToken, locationId);
+        maps_uri = meta?.mapsUri || "";
+        new_review_uri = meta?.newReviewUri || "";
+        place_id = meta?.placeId || "";
+      } catch {
+        // fail-soft: Metadata ist nice-to-have, Reviews sind core
+      }
+    }
+
+    // Optional: stabiler Maps-Link aus placeId (falls du lieber standardisieren willst)
+    const maps_place_url = place_id
+      ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(place_id)}`
+      : null;
+
     let reviews;
     try {
       reviews = await listReviewsForLocation(accessToken, ENV.GBP_ACCOUNT_ID, locationId, start, end);
@@ -345,18 +378,15 @@ async function main() {
       const commentClean = cleanComment(r.comment || "");
       const comment_full = buildCommentFull(commentClean, reviewer, reviewed_at);
 
-      // Prefill rid: fail-soft (keep review even if prefill fails)
       let rid = "";
       let smart_reply_url = "";
       let prefill_error = "";
 
       try {
         rid = await createPrefillRid({
-          // Wichtig: deine Flask-App prefllt primär review+rating
           review: comment_full,
           rating: rating ? String(rating) : "",
 
-          // Optional Metadata (für spätere Erweiterungen ok)
           reviewer,
           reviewed_at,
           accountId: ENV.GBP_ACCOUNT_ID,
@@ -364,6 +394,12 @@ async function main() {
           reviewId,
           storeCode,
           locationTitle,
+
+          // NEW: Links/IDs für Location
+          maps_uri: maps_uri || "",
+          new_review_uri: new_review_uri || "",
+          place_id: place_id || "",
+          maps_place_url: maps_place_url || "",
         });
         smart_reply_url = `${ENV.PUBLIC_APP_URL.replace(/\/$/, "")}/?rid=${rid}`;
       } catch (e) {
@@ -383,9 +419,14 @@ async function main() {
         prefill_rid: rid || null,
         smart_reply_url: smart_reply_url || null,
         prefill_error: prefill_error || null,
+
+        // NEW: Links/IDs für Location
+        maps_uri: maps_uri || null,
+        new_review_uri: new_review_uri || null,
+        place_id: place_id || null,
+        maps_place_url: maps_place_url || null,
       });
 
-      // small pacing: avoid hammering Prefill API
       await sleep(60);
     }
   });
@@ -407,7 +448,6 @@ async function main() {
     count_total: items.length,
   };
 
-  // Always send at least one payload so Make can filter by count_total > 0
   if (chunks.length === 0) chunks.push([]);
 
   for (let i = 0; i < chunks.length; i++) {
