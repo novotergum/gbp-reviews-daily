@@ -3,9 +3,7 @@ name: GBP Reviews Daily -> Make
 on:
   workflow_dispatch: {}
   schedule:
-    # Cron ist UTC.
-    # 04:30 UTC = 05:30 Berlin (Winter) / 06:30 Berlin (Sommer)
-    - cron: "30 4 * * *"
+    - cron: "30 4 * * *" # UTC
 
 jobs:
   run:
@@ -20,8 +18,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          # Lockfile fehlt bei dir -> daher KEIN npm-cache aktivieren
-          # (Alternativ: package-lock.json committen und cache: "npm" nutzen)
 
       - name: Install deps
         run: npm install
@@ -40,6 +36,5 @@ jobs:
 
           MAKE_REVIEWS_WEBHOOK_URL: ${{ secrets.MAKE_REVIEWS_WEBHOOK_URL }}
 
-          # optional tuning
           CONCURRENCY: "5"
           MAKE_BATCH_SIZE: "200"
