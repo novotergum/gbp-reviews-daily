@@ -4,7 +4,7 @@ on:
   workflow_dispatch: {}
   schedule:
     # Cron ist UTC.
-    # Läuft 04:30 UTC (-> 05:30 Berlin im Winter, 06:30 Berlin im Sommer).
+    # 04:30 UTC = 05:30 Berlin (Winter) / 06:30 Berlin (Sommer)
     - cron: "30 4 * * *"
 
 jobs:
@@ -20,10 +20,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
+          # Lockfile fehlt bei dir -> daher KEIN npm-cache aktivieren
+          # (Alternativ: package-lock.json committen und cache: "npm" nutzen)
 
       - name: Install deps
-        run: npm ci
+        run: npm install
 
       - name: Run daily job
         run: npm run gbp:daily
