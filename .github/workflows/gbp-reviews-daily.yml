@@ -1,0 +1,44 @@
+name: GBP Reviews Daily -> Make
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Cron ist UTC.
+    # Läuft 04:30 UTC (-> 05:30 Berlin im Winter, 06:30 Berlin im Sommer).
+    - cron: "30 4 * * *"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run daily job
+        run: npm run gbp:daily
+        env:
+          GBP_CLIENT_ID: ${{ secrets.GBP_CLIENT_ID }}
+          GBP_CLIENT_SECRET: ${{ secrets.GBP_CLIENT_SECRET }}
+          GBP_REFRESH_TOKEN: ${{ secrets.GBP_REFRESH_TOKEN }}
+          GBP_ACCOUNT_ID: ${{ secrets.GBP_ACCOUNT_ID }}
+
+          PREFILL_API_URL: ${{ secrets.PREFILL_API_URL }}
+          PREFILL_SECRET: ${{ secrets.PREFILL_SECRET }}
+          PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
+
+          MAKE_REVIEWS_WEBHOOK_URL: ${{ secrets.MAKE_REVIEWS_WEBHOOK_URL }}
+
+          # optional tuning
+          CONCURRENCY: "5"
+          MAKE_BATCH_SIZE: "200"
