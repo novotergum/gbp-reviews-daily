@@ -1,0 +1,45 @@
+name: GBP Insights Weekly -> Make
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1'  # Jeden Montag 04:00 UTC (= 06:00 Berlin Sommerzeit)
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: 📥 Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: 🧰 Node installieren
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 📦 Abhängigkeiten installieren
+        run: npm install
+
+      - name: 📄 Weekly Insights ausführen
+        run: npm run gbp:insights:weekly
+        env:
+          GBP_CLIENT_ID:                    ${{ secrets.GBP_CLIENT_ID }}
+          GBP_CLIENT_SECRET:                ${{ secrets.GBP_CLIENT_SECRET }}
+          GBP_REFRESH_TOKEN:                ${{ secrets.GBP_REFRESH_TOKEN }}
+          GBP_ACCOUNT_ID:                   ${{ secrets.GBP_ACCOUNT_ID }}
+          MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY: ${{ secrets.MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY }}
+          CONCURRENCY:                      "1"
+
+      - name: 📂 Zeige generierte Dateien
+        run: ls -la gbp-weekly-*.csv 2>/dev/null || echo "Keine CSV gefunden"
+
+      - name: 📤 CSVs als Artifact hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gbp-weekly-csv
+          path: "gbp-weekly-*.csv"
+          if-no-files-found: warn
+          retention-days: 30
