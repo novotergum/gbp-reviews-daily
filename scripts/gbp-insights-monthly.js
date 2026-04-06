@@ -12,7 +12,8 @@ const ENV = {
 
   MAKE_INSIGHTS_WEBHOOK_URL_MONTHLY: (process.env.MAKE_INSIGHTS_WEBHOOK_URL_MONTHLY || "").trim(),
 
-  CONCURRENCY: Number(process.env.CONCURRENCY || "3"),
+  // Sequentiell (1) um 429 zu vermeiden
+  CONCURRENCY: Number(process.env.CONCURRENCY || "1"),
 };
 
 function mustEnv(key) {
@@ -21,7 +22,6 @@ function mustEnv(key) {
 }
 
 // -------------------- TIME RANGE --------------------
-// Vorheriger Kalendermonat
 const TZ = "Europe/Berlin";
 
 function getPreviousMonthRange() {
@@ -37,7 +37,6 @@ function getPreviousMonthRange() {
 const { start, end, label } = getPreviousMonthRange();
 
 // -------------------- Metrics --------------------
-// Jede Metric wird einzeln abgefragt, danach aggregiert
 const METRICS = [
   "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
   "BUSINESS_IMPRESSIONS_MOBILE_SEARCH",
@@ -53,16 +52,27 @@ async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function requestWithRetry(url, options = {}, { retries = 4, baseBackoffMs = 800 } = {}) {
+async function requestWithRetry(url, options = {}, { retries = 5, baseBackoffMs = 2000 } = {}) {
   let lastErr;
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
-      if ([429, 500, 502, 503, 504].includes(res.status)) {
+
+      // 429: warte länger und retry
+      if (res.status === 429) {
+        const wait = baseBackoffMs * Math.pow(2, i);
+        console.warn(`    429 – warte ${wait}ms …`);
+        await sleep(wait);
+        lastErr = new Error(`HTTP 429 Too Many Requests`);
+        continue;
+      }
+
+      if ([500, 502, 503, 504].includes(res.status)) {
         lastErr = new Error(`HTTP ${res.status} ${res.statusText}`);
         await sleep(baseBackoffMs * Math.pow(2, i));
         continue;
       }
+
       return res;
     } catch (e) {
       lastErr = e;
@@ -136,7 +146,6 @@ async function listLocations(accessToken, accountId) {
 }
 
 // -------------------- GBP: Performance API --------------------
-// Summiert alle Tageswerte einer Metric über den Zeitraum
 async function fetchMetricSum(accessToken, locationId, metric, startDt, endDt) {
   const j = await getJson(
     `https://businessprofileperformance.googleapis.com/v1/locations/${locationId}:getDailyMetricsTimeSeries`,
@@ -158,13 +167,21 @@ async function fetchMetricSum(accessToken, locationId, metric, startDt, endDt) {
   return values.reduce((sum, d) => sum + (Number(d.value) || 0), 0);
 }
 
-// Alle 7 Metrics für einen Standort abrufen + aggregieren
 async function fetchInsightsForLocation(accessToken, locationId, startDt, endDt) {
   const results = {};
 
   for (const metric of METRICS) {
-    results[metric] = await fetchMetricSum(accessToken, locationId, metric, startDt, endDt);
-    await sleep(200); // Rate Limiting schonen
+    try {
+      results[metric] = await fetchMetricSum(accessToken, locationId, metric, startDt, endDt);
+    } catch (e) {
+      // 403 = keine Berechtigung für diese Metric/Location → 0, nicht crashen
+      if (e.message.includes("403")) {
+        results[metric] = 0;
+      } else {
+        throw e; // andere Fehler weitergeben
+      }
+    }
+    await sleep(600); // 600ms zwischen Metrics → ~4s pro Location
   }
 
   const views_search = results["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"]
@@ -215,6 +232,7 @@ async function main() {
   console.log(`TZ:      ${TZ}`);
   console.log(`Monat:   ${label} (${start.toISODate()} → ${end.toISODate()})`);
   console.log(`Account: ${ENV.GBP_ACCOUNT_ID}`);
+  console.log(`Concurrency: ${ENV.CONCURRENCY}`);
 
   console.log("\n1) Access token …");
   const accessToken = await getAccessToken();
@@ -225,6 +243,7 @@ async function main() {
   console.log(`✓ ${locations.length} locations`);
 
   const rows = [];
+  const skipped = [];
 
   console.log("\n3) Insights (Performance API) …");
 
@@ -232,6 +251,7 @@ async function main() {
     const locationId    = (loc.name || "").split("/").pop();
     const storeCode     = (loc.storeCode || "").toString().trim();
     const locationTitle = (loc.title || "").trim();
+    const label_loc     = storeCode || locationTitle || locationId;
 
     if (!locationId) return;
 
@@ -239,11 +259,12 @@ async function main() {
     try {
       insights = await fetchInsightsForLocation(accessToken, locationId, start, end);
     } catch (e) {
-      console.warn(`  ⚠ ${storeCode || locationTitle}: ${e.message}`);
+      console.warn(`  ⚠ ${label_loc}: ${e.message}`);
+      skipped.push(label_loc);
       return;
     }
 
-    console.log(`  ${storeCode || locationTitle}: views=${insights.views} actions=${insights.actions}`);
+    console.log(`  ✓ ${label_loc}: views=${insights.views} actions=${insights.actions}`);
 
     rows.push({
       Store:                       storeCode || null,
@@ -258,10 +279,10 @@ async function main() {
     });
   });
 
-  // Alphabetisch sortieren
   rows.sort((a, b) => (a.Store || "").localeCompare(b.Store || ""));
 
-  console.log(`\n✓ Total locations mit Daten: ${rows.length}`);
+  console.log(`\n✓ Locations mit Daten: ${rows.length}`);
+  if (skipped.length) console.log(`⚠ Übersprungen (${skipped.length}): ${skipped.join(", ")}`);
 
   // -------------------- CSV Export --------------------
   const filename = `gbp-insights-${label}.csv`;
@@ -280,6 +301,7 @@ async function main() {
         dateFrom:  start.toISODate(),
         dateTo:    end.toISODate(),
         row_count: rows.length,
+        skipped,
         rows,
       }),
     });
