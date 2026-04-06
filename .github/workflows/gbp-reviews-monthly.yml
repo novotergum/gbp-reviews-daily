@@ -1,4 +1,4 @@
-name: GBP Reviews History -> Zapier
+name: GBP Reviews History -> Make
  
 on:
   workflow_dispatch: {}
@@ -28,7 +28,7 @@ jobs:
           GBP_CLIENT_SECRET:       ${{ secrets.GBP_CLIENT_SECRET }}
           GBP_REFRESH_TOKEN:       ${{ secrets.GBP_REFRESH_TOKEN }}
           GBP_ACCOUNT_ID:          ${{ secrets.GBP_ACCOUNT_ID }}
-          ZAPIER_WEBHOOK_DATA_URL: ${{ secrets.ZAPIER_WEBHOOK_DATA_URL }}
+          MAKE_REVIEWS_WEBHOOK_URL_MONTHLY: ${{ secrets.MAKE_REVIEWS_WEBHOOK_URL_MONTHLY }}
           CONCURRENCY:             "3"
  
       - name: Upload CSV artifact
