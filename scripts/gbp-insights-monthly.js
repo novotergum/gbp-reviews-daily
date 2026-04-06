@@ -12,7 +12,6 @@ const ENV = {
 
   MAKE_INSIGHTS_WEBHOOK_URL_MONTHLY: (process.env.MAKE_INSIGHTS_WEBHOOK_URL_MONTHLY || "").trim(),
 
-  // Sequentiell (1) um 429 zu vermeiden
   CONCURRENCY: Number(process.env.CONCURRENCY || "1"),
 };
 
@@ -36,6 +35,77 @@ function getPreviousMonthRange() {
 
 const { start, end, label } = getPreviousMonthRange();
 
+// -------------------- StoreCode -> Standort (exakt wie omlocal) --------------------
+const STORE_NAMES = {
+  NTST001: "Alsfeld",
+  NTST002: "Bad Laer",
+  NTST003: "Bad Oeynhausen",
+  NTST004: "Bargfeld-Stegen",
+  NTST005: "Bergisch Gladbach",
+  NTST006: "Berlin-Lichtenberg E",
+  NTST007: "Berlin-Lichtenberg P",
+  NTST008: "Bielefeld-Brackwede",
+  NTST009: "Bielefeld-Innenstadt",
+  NTST010: "Bielefeld-Senne",
+  NTST011: "Bochum-Goy",
+  NTST012: "Bochum SMZ Ruhrpark",
+  NTST013: "Bochum SMZ Mitte",
+  NTST014: "Bochum-Wattenscheid",
+  NTST015: "Bochum-Altenbochum",
+  NTST016: "Bochum-Innenstadt",
+  NTST017: "Bonn",
+  NTST018: "Braunschweig",
+  NTST019: "Brühl",
+  NTST020: "Dorsten",
+  NTST021: "Dortmund",
+  NTST022: "Dortmund-Kirchlinde",
+  NTST023: "Duisburg",
+  NTST024: "Düsseldorf",
+  NTST025: "Essen",
+  NTST026: "Euskirchen",
+  NTST027: "Gelsenkirchen",
+  NTST028: "Gelsenkirchen-Buer",
+  NTST029: "Gladbeck",
+  NTST030: "Hagen",
+  NTST031: "Hamburg-Berliner Tor",
+  NTST032: "Hamburg Kaifu",
+  NTST033: "Hamburg-Rahlstedt",
+  NTST034: "Heidelberg",
+  NTST035: "Herten",
+  NTST036: "Hürth-Gleuel",
+  NTST037: "Hürth-Hermülheim",
+  NTST038: "Kempen",
+  NTST039: "Köln-Ford",
+  NTST040: "Köln-Lindenthal",
+  NTST041: "Köln-Rodenkirchen",
+  NTST042: "Korbach",
+  NTST043: "Krefeld",
+  NTST044: "Leopoldshöhe",
+  NTST045: "Lübbecke",
+  NTST046: "Menden",
+  NTST047: "Mülheim",
+  NTST048: "Mülheim-Flughafen",
+  NTST049: "Neckarsulm",
+  NTST050: "Neuenkirchen",
+  NTST051: "Nieder-Olm",
+  NTST052: "Oer-Erkenschwick",
+  NTST053: "Offenbach",
+  NTST054: "Recklinghausen H.",
+  NTST055: "Recklinghausen O.",
+  NTST056: "Büdingen",
+  NTST057: "Salzgitter MEDIFIT",
+  NTST058: "Salzgitter iTZ Bad",
+  NTST059: "Salzgitter iTZ",
+  NTST060: "Sindelfingen",
+  NTST061: "Solingen",
+  NTST062: "Sülfeld",
+  NTST063: "Troisdorf",
+  NTST064: "Warendorf",
+  NTST065: "Windeck",
+  NTST066: "Witten",
+  NTST067: "Wuppertal",
+};
+
 // -------------------- Metrics --------------------
 const METRICS = [
   "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
@@ -57,8 +127,6 @@ async function requestWithRetry(url, options = {}, { retries = 5, baseBackoffMs 
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
-
-      // 429: warte länger und retry
       if (res.status === 429) {
         const wait = baseBackoffMs * Math.pow(2, i);
         console.warn(`    429 – warte ${wait}ms …`);
@@ -66,13 +134,11 @@ async function requestWithRetry(url, options = {}, { retries = 5, baseBackoffMs 
         lastErr = new Error(`HTTP 429 Too Many Requests`);
         continue;
       }
-
       if ([500, 502, 503, 504].includes(res.status)) {
         lastErr = new Error(`HTTP ${res.status} ${res.statusText}`);
         await sleep(baseBackoffMs * Math.pow(2, i));
         continue;
       }
-
       return res;
     } catch (e) {
       lastErr = e;
@@ -174,14 +240,13 @@ async function fetchInsightsForLocation(accessToken, locationId, startDt, endDt)
     try {
       results[metric] = await fetchMetricSum(accessToken, locationId, metric, startDt, endDt);
     } catch (e) {
-      // 403 = keine Berechtigung für diese Metric/Location → 0, nicht crashen
       if (e.message.includes("403")) {
         results[metric] = 0;
       } else {
-        throw e; // andere Fehler weitergeben
+        throw e;
       }
     }
-    await sleep(600); // 600ms zwischen Metrics → ~4s pro Location
+    await sleep(600);
   }
 
   const views_search = results["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"]
@@ -195,15 +260,7 @@ async function fetchInsightsForLocation(accessToken, locationId, startDt, endDt)
   const actions_driving_directions = results["BUSINESS_DIRECTION_REQUESTS"];
   const actions                    = actions_website + actions_phone + actions_driving_directions;
 
-  return {
-    views,
-    actions,
-    views_search,
-    views_maps,
-    actions_website,
-    actions_phone,
-    actions_driving_directions,
-  };
+  return { views, actions, views_search, views_maps, actions_website, actions_phone, actions_driving_directions };
 }
 
 // -------------------- Concurrency pool --------------------
@@ -232,7 +289,6 @@ async function main() {
   console.log(`TZ:      ${TZ}`);
   console.log(`Monat:   ${label} (${start.toISODate()} → ${end.toISODate()})`);
   console.log(`Account: ${ENV.GBP_ACCOUNT_ID}`);
-  console.log(`Concurrency: ${ENV.CONCURRENCY}`);
 
   console.log("\n1) Access token …");
   const accessToken = await getAccessToken();
@@ -251,23 +307,25 @@ async function main() {
     const locationId    = (loc.name || "").split("/").pop();
     const storeCode     = (loc.storeCode || "").toString().trim();
     const locationTitle = (loc.title || "").trim();
-    const label_loc     = storeCode || locationTitle || locationId;
 
     if (!locationId) return;
+
+    // Standort-Name: aus Map (exakt wie omlocal), Fallback locationTitle
+    const standort = STORE_NAMES[storeCode] || locationTitle || storeCode;
 
     let insights;
     try {
       insights = await fetchInsightsForLocation(accessToken, locationId, start, end);
     } catch (e) {
-      console.warn(`  ⚠ ${label_loc}: ${e.message}`);
-      skipped.push(label_loc);
+      console.warn(`  ⚠ ${standort}: ${e.message}`);
+      skipped.push(standort);
       return;
     }
 
-    console.log(`  ✓ ${label_loc}: views=${insights.views} actions=${insights.actions}`);
+    console.log(`  ✓ ${standort}: views=${insights.views} actions=${insights.actions}`);
 
     rows.push({
-      Store:                       storeCode || null,
+      Standort:                    standort,
       month:                       label,
       views:                       insights.views,
       actions:                     insights.actions,
@@ -279,7 +337,7 @@ async function main() {
     });
   });
 
-  rows.sort((a, b) => (a.Store || "").localeCompare(b.Store || ""));
+  rows.sort((a, b) => (a.Standort || "").localeCompare(b.Standort || ""));
 
   console.log(`\n✓ Locations mit Daten: ${rows.length}`);
   if (skipped.length) console.log(`⚠ Übersprungen (${skipped.length}): ${skipped.join(", ")}`);
