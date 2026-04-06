@@ -6,7 +6,8 @@
     "gbp:daily":   "node scripts/gbp-reviews-daily.js",
     "gbp:history": "node scripts/gbp-reviews-history.js",
     "gbp:insights": "node scripts/gbp-insights-monthly.js",
-    "gbp:insights:daily": "node scripts/gbp-insights-daily.js"
+    "gbp:insights:daily": "node scripts/gbp-insights-daily.js",
+    "gbp:insights:weekly": "node scripts/gbp-insights-weekly.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
