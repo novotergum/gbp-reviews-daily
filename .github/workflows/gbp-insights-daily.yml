@@ -1,0 +1,41 @@
+name: GBP Insights Daily -> Make
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'  # Jeden Montag 04:00 UTC (= 06:00 Berlin Sommerzeit)
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: 📥 Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: 🧰 Node installieren
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 📦 Abhängigkeiten installieren
+        run: npm install
+
+      - name: 📄 Daily Insights ausführen
+        run: npm run gbp:insights:daily
+        env:
+          GBP_CLIENT_ID:                   ${{ secrets.GBP_CLIENT_ID }}
+          GBP_CLIENT_SECRET:               ${{ secrets.GBP_CLIENT_SECRET }}
+          GBP_REFRESH_TOKEN:               ${{ secrets.GBP_REFRESH_TOKEN }}
+          GBP_ACCOUNT_ID:                  ${{ secrets.GBP_ACCOUNT_ID }}
+          MAKE_INSIGHTS_WEBHOOK_URL_DAILY: ${{ secrets.MAKE_INSIGHTS_WEBHOOK_URL_DAILY }}
+          CONCURRENCY:                     "1"
+
+      - name: 📤 CSV als Artifact hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gbp-insights-daily-csv
+          path: "gbp-insights-daily-*.csv"
+          retention-days: 30
