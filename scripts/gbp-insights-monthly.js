@@ -106,6 +106,22 @@ const STORE_NAMES = {
   NTST067: "Wuppertal",
 };
 
+// -------------------- Locations ohne NTST-Code: überspringen --------------------
+const SKIP_TITLES = new Set([
+  "NOVOTERGUM Physiotherapie Berg-Therapie",
+  "NOVOTERGUM Berlin Lichtenberg Logotherapie",
+]);
+
+// -------------------- Locations ohne NTST-Code: Titel -> Standort --------------------
+const TITLE_NAMES = {
+  "NOVOTERGUM Physiotherapie & Ergotherapie Hamburg-Harburg": "Hamburg-Harburg",
+  "NOVOTERGUM Osteopathie Berlin-Lichtenberg Osteo":          "Berlin-Lichtenberg O",
+  "NOVOTERGUM GmbH":                                          "Zentral",
+  "Berg Therapie - Ganzheitliche Physiotherapie":             "Bornheim (Berg Therapie)",
+  "Berg Therapie - Physiotherapie / Osteopathie & mehr":      "Erftstadt (Berg Therapie)",
+  "Berg Therapie Inh. Christopher Berg":                      "Brühl (Berg Therapie)",
+};
+
 // -------------------- Metrics --------------------
 const METRICS = [
   "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
@@ -310,8 +326,14 @@ async function main() {
 
     if (!locationId) return;
 
-    // Standort-Name: aus Map (exakt wie omlocal), Fallback locationTitle
-    const standort = STORE_NAMES[storeCode] || locationTitle || storeCode;
+    // Überspringen
+    if (SKIP_TITLES.has(locationTitle)) {
+      console.log(`  ⏭ ${locationTitle} (übersprungen)`);
+      return;
+    }
+
+    // Standort-Name: NTST-Map → Titel-Map → locationTitle
+    const standort = STORE_NAMES[storeCode] || TITLE_NAMES[locationTitle] || locationTitle || storeCode;
 
     let insights;
     try {
