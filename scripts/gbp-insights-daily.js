@@ -10,7 +10,7 @@ const ENV = {
   GBP_REFRESH_TOKEN: (process.env.GBP_REFRESH_TOKEN || "").trim(),
   GBP_ACCOUNT_ID:    (process.env.GBP_ACCOUNT_ID    || "").trim(),
 
-  MAKE_INSIGHTS_WEBHOOK_URL_DAILY: (process.env.MAKE_INSIGHTS_WEBHOOK_URL_DAILY || "").trim(),
+  MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY: (process.env.MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY || "").trim(),
 
   CONCURRENCY: Number(process.env.CONCURRENCY || "1"),
 };
@@ -21,91 +21,53 @@ function mustEnv(key) {
 }
 
 // -------------------- TIME RANGE --------------------
-// Montag vor 8 Wochen bis Sonntag vor 2 Wochen (exakt wie omlocal_trend.js)
+// Montag vor 8 Wochen bis Sonntag vor 2 Wochen = 7 Wochen Daten (exakt wie omlocal_trend.js)
+// Vorperiode: gleiche 7 Wochen, 7 Wochen früher (für prev_* Felder)
 const TZ = "Europe/Berlin";
 
-function getRange() {
-  const today = DateTime.now().setZone(TZ).startOf("day");
+function getRanges() {
+  const today   = DateTime.now().setZone(TZ).startOf("day");
+  const weekday = today.weekday;
+  const monday  = today.minus({ days: weekday - 1 }); // Montag diese Woche
 
-  const weekday    = today.weekday; // 1=Mo … 7=So
-  const monday     = today.minus({ days: weekday - 1 }); // Montag diese Woche
+  const curStart  = monday.minus({ weeks: 8 });        // Montag vor 8 Wochen
+  const curEnd    = monday.minus({ days: 8 });          // Sonntag vor 2 Wochen (= 7 Wochen Daten)
 
-  const start = monday.minus({ weeks: 8 });          // Montag vor 8 Wochen
-  const end   = monday.minus({ days: 8 });           // Sonntag vor 2 Wochen
+  const prevStart = curStart.minus({ weeks: 7 });       // gleiche Länge, 7 Wochen früher
+  const prevEnd   = curEnd.minus({ weeks: 7 });
 
-  return { start, end };
+  return { curStart, curEnd, prevStart, prevEnd };
 }
 
-const { start, end } = getRange();
+const { curStart, curEnd, prevStart, prevEnd } = getRanges();
+const dateFrom = curStart.toISODate();
+const dateTo   = curEnd.toISODate();
 
 // -------------------- StoreCode -> Standort --------------------
 const STORE_NAMES = {
-  NTST001: "Alsfeld",
-  NTST002: "Bad Laer",
-  NTST003: "Bad Oeynhausen",
-  NTST004: "Bargfeld-Stegen",
-  NTST005: "Bergisch Gladbach",
-  NTST006: "Berlin-Lichtenberg E",
-  NTST007: "Berlin-Lichtenberg P",
-  NTST008: "Bielefeld-Brackwede",
-  NTST009: "Bielefeld-Innenstadt",
-  NTST010: "Bielefeld-Senne",
-  NTST011: "Bochum-Goy",
-  NTST012: "Bochum SMZ Ruhrpark",
-  NTST013: "Bochum SMZ Mitte",
-  NTST014: "Bochum-Wattenscheid",
-  NTST015: "Bochum-Altenbochum",
-  NTST016: "Bochum-Innenstadt",
-  NTST017: "Bonn",
-  NTST018: "Braunschweig",
-  NTST019: "Brühl",
-  NTST020: "Dorsten",
-  NTST021: "Dortmund",
-  NTST022: "Dortmund-Kirchlinde",
-  NTST023: "Duisburg",
-  NTST024: "Düsseldorf",
-  NTST025: "Essen",
-  NTST026: "Euskirchen",
-  NTST027: "Gelsenkirchen",
-  NTST028: "Gelsenkirchen-Buer",
-  NTST029: "Gladbeck",
-  NTST030: "Hagen",
-  NTST031: "Hamburg-Berliner Tor",
-  NTST032: "Hamburg Kaifu",
-  NTST033: "Hamburg-Rahlstedt",
-  NTST034: "Heidelberg",
-  NTST035: "Herten",
-  NTST036: "Hürth-Gleuel",
-  NTST037: "Hürth-Hermülheim",
-  NTST038: "Kempen",
-  NTST039: "Köln-Ford",
-  NTST040: "Köln-Lindenthal",
-  NTST041: "Köln-Rodenkirchen",
-  NTST042: "Korbach",
-  NTST043: "Krefeld",
-  NTST044: "Leopoldshöhe",
-  NTST045: "Lübbecke",
-  NTST046: "Menden",
-  NTST047: "Mülheim",
-  NTST048: "Mülheim-Flughafen",
-  NTST049: "Neckarsulm",
-  NTST050: "Neuenkirchen",
-  NTST051: "Nieder-Olm",
-  NTST052: "Oer-Erkenschwick",
-  NTST053: "Offenbach",
-  NTST054: "Recklinghausen H.",
-  NTST055: "Recklinghausen O.",
-  NTST056: "Büdingen",
-  NTST057: "Salzgitter MEDIFIT",
-  NTST058: "Salzgitter iTZ Bad",
-  NTST059: "Salzgitter iTZ",
-  NTST060: "Sindelfingen",
-  NTST061: "Solingen",
-  NTST062: "Sülfeld",
-  NTST063: "Troisdorf",
-  NTST064: "Warendorf",
-  NTST065: "Windeck",
-  NTST066: "Witten",
+  NTST001: "Alsfeld",         NTST002: "Bad Laer",          NTST003: "Bad Oeynhausen",
+  NTST004: "Bargfeld-Stegen", NTST005: "Bergisch Gladbach",  NTST006: "Berlin-Lichtenberg E",
+  NTST007: "Berlin-Lichtenberg P",                           NTST008: "Bielefeld-Brackwede",
+  NTST009: "Bielefeld-Innenstadt",                           NTST010: "Bielefeld-Senne",
+  NTST011: "Bochum-Goy",      NTST012: "Bochum SMZ Ruhrpark", NTST013: "Bochum SMZ Mitte",
+  NTST014: "Bochum-Wattenscheid",                            NTST015: "Bochum-Altenbochum",
+  NTST016: "Bochum-Innenstadt", NTST017: "Bonn",             NTST018: "Braunschweig",
+  NTST019: "Brühl",           NTST020: "Dorsten",            NTST021: "Dortmund",
+  NTST022: "Dortmund-Kirchlinde", NTST023: "Duisburg",       NTST024: "Düsseldorf",
+  NTST025: "Essen",           NTST026: "Euskirchen",         NTST027: "Gelsenkirchen",
+  NTST028: "Gelsenkirchen-Buer", NTST029: "Gladbeck",        NTST030: "Hagen",
+  NTST031: "Hamburg-Berliner Tor", NTST032: "Hamburg Kaifu", NTST033: "Hamburg-Rahlstedt",
+  NTST034: "Heidelberg",      NTST035: "Herten",             NTST036: "Hürth-Gleuel",
+  NTST037: "Hürth-Hermülheim", NTST038: "Kempen",            NTST039: "Köln-Ford",
+  NTST040: "Köln-Lindenthal", NTST041: "Köln-Rodenkirchen",  NTST042: "Korbach",
+  NTST043: "Krefeld",         NTST044: "Leopoldshöhe",       NTST045: "Lübbecke",
+  NTST046: "Menden",          NTST047: "Mülheim",            NTST048: "Mülheim-Flughafen",
+  NTST049: "Neckarsulm",      NTST050: "Neuenkirchen",       NTST051: "Nieder-Olm",
+  NTST052: "Oer-Erkenschwick", NTST053: "Offenbach",         NTST054: "Recklinghausen H.",
+  NTST055: "Recklinghausen O.", NTST056: "Büdingen",         NTST057: "Salzgitter MEDIFIT",
+  NTST058: "Salzgitter iTZ Bad", NTST059: "Salzgitter iTZ",  NTST060: "Sindelfingen",
+  NTST061: "Solingen",        NTST062: "Sülfeld",            NTST063: "Troisdorf",
+  NTST064: "Warendorf",       NTST065: "Windeck",            NTST066: "Witten",
   NTST067: "Wuppertal",
 };
 
@@ -190,13 +152,11 @@ async function getAccessToken() {
     refresh_token: ENV.GBP_REFRESH_TOKEN,
     grant_type:    "refresh_token",
   });
-
   const res = await requestWithRetry("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
-
   const txt = await res.text();
   if (!res.ok) throw new Error(`Token error ${res.status}: ${txt}`);
   const j = JSON.parse(txt);
@@ -213,12 +173,7 @@ async function listLocations(accessToken, accountId) {
       `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${accountId}/locations`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
-        params: {
-          pageSize:  "100",
-          readMask:  "name,title,storeCode",
-          orderBy:   "storeCode",
-          pageToken,
-        },
+        params: { pageSize: "100", readMask: "name,title,storeCode", orderBy: "storeCode", pageToken },
       }
     );
     out.push(...(j.locations || []));
@@ -227,8 +182,9 @@ async function listLocations(accessToken, accountId) {
   return out;
 }
 
-// -------------------- GBP: Performance API (daily values) --------------------
-async function fetchMetricDaily(accessToken, locationId, metric, startDt, endDt) {
+// -------------------- GBP: Performance API --------------------
+// Gibt Map zurück: "YYYY-MM-DD" -> Zahl
+async function fetchMetricMap(accessToken, locationId, metric, startDt, endDt) {
   const j = await getJson(
     `https://businessprofileperformance.googleapis.com/v1/locations/${locationId}:getDailyMetricsTimeSeries`,
     {
@@ -244,56 +200,40 @@ async function fetchMetricDaily(accessToken, locationId, metric, startDt, endDt)
       },
     }
   );
-
-  // Gibt Map zurück: "YYYY-MM-DD" -> value
   const map = {};
   for (const d of j?.timeSeries?.datedValues || []) {
     const { year, month, day } = d.date;
-    const key = `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-    map[key] = Number(d.value) || 0;
+    map[`${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`] = Number(d.value) || 0;
   }
   return map;
 }
 
-async function fetchDailyInsightsForLocation(accessToken, locationId, startDt, endDt) {
-  const metricMaps = {};
-
+// Holt alle Metrics für einen Zeitraum → Map: date → { views, actions, views_search, … }
+async function fetchPeriodByDate(accessToken, locationId, startDt, endDt) {
+  const mm = {};
   for (const metric of METRICS) {
     try {
-      metricMaps[metric] = await fetchMetricDaily(accessToken, locationId, metric, startDt, endDt);
+      mm[metric] = await fetchMetricMap(accessToken, locationId, metric, startDt, endDt);
     } catch (e) {
-      if (e.message.includes("403")) {
-        metricMaps[metric] = {};
-      } else {
-        throw e;
-      }
+      mm[metric] = e.message.includes("403") ? {} : (() => { throw e; })();
     }
     await sleep(600);
   }
 
-  // Alle Tage aus allen Maps sammeln
-  const allDates = new Set();
-  for (const map of Object.values(metricMaps)) {
-    for (const date of Object.keys(map)) allDates.add(date);
+  const dates = new Set();
+  for (const m of Object.values(mm)) for (const d of Object.keys(m)) dates.add(d);
+
+  const byDate = {};
+  for (const date of dates) {
+    const vs  = (mm["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"][date] || 0) + (mm["BUSINESS_IMPRESSIONS_MOBILE_SEARCH"][date] || 0);
+    const vm  = (mm["BUSINESS_IMPRESSIONS_DESKTOP_MAPS"][date]   || 0) + (mm["BUSINESS_IMPRESSIONS_MOBILE_MAPS"][date]   || 0);
+    const aw  = mm["WEBSITE_CLICKS"][date]              || 0;
+    const ap  = mm["CALL_CLICKS"][date]                 || 0;
+    const ad  = mm["BUSINESS_DIRECTION_REQUESTS"][date] || 0;
+    byDate[date] = { views: vs + vm, actions: aw + ap + ad, views_search: vs, views_maps: vm,
+                     actions_website: aw, actions_phone: ap, actions_driving_directions: ad };
   }
-
-  const rows = [];
-  for (const date of [...allDates].sort()) {
-    const views_search = (metricMaps["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"][date] || 0)
-                       + (metricMaps["BUSINESS_IMPRESSIONS_MOBILE_SEARCH"][date]  || 0);
-    const views_maps   = (metricMaps["BUSINESS_IMPRESSIONS_DESKTOP_MAPS"][date]   || 0)
-                       + (metricMaps["BUSINESS_IMPRESSIONS_MOBILE_MAPS"][date]    || 0);
-    const views        = views_search + views_maps;
-
-    const actions_website            = metricMaps["WEBSITE_CLICKS"][date]              || 0;
-    const actions_phone              = metricMaps["CALL_CLICKS"][date]                 || 0;
-    const actions_driving_directions = metricMaps["BUSINESS_DIRECTION_REQUESTS"][date] || 0;
-    const actions                    = actions_website + actions_phone + actions_driving_directions;
-
-    rows.push({ Datum: date, views, actions, views_search, views_maps, actions_website, actions_phone, actions_driving_directions });
-  }
-
-  return rows;
+  return byDate;
 }
 
 // -------------------- Concurrency pool --------------------
@@ -312,6 +252,20 @@ async function asyncPool(limit, items, fn) {
   return Promise.all(ret);
 }
 
+// -------------------- Aggregate helper --------------------
+const ZERO = () => ({ views: 0, actions: 0, views_search: 0, views_maps: 0,
+                       actions_website: 0, actions_phone: 0, actions_driving_directions: 0 });
+
+function addTo(acc, r) {
+  acc.views               += r.views               || 0;
+  acc.actions             += r.actions             || 0;
+  acc.views_search        += r.views_search        || 0;
+  acc.views_maps          += r.views_maps          || 0;
+  acc.actions_website     += r.actions_website     || 0;
+  acc.actions_phone       += r.actions_phone       || 0;
+  acc.actions_driving_directions += r.actions_driving_directions || 0;
+}
+
 // -------------------- MAIN --------------------
 async function main() {
   mustEnv("GBP_CLIENT_ID");
@@ -319,9 +273,8 @@ async function main() {
   mustEnv("GBP_REFRESH_TOKEN");
   mustEnv("GBP_ACCOUNT_ID");
 
-  console.log(`TZ:      ${TZ}`);
-  console.log(`Range:   ${start.toISODate()} → ${end.toISODate()}`);
-  console.log(`Account: ${ENV.GBP_ACCOUNT_ID}`);
+  console.log(`Zeitraum (Mo–So): ${dateFrom} bis ${dateTo}`);
+  console.log(`Vorperiode:       ${prevStart.toISODate()} bis ${prevEnd.toISODate()}`);
 
   console.log("\n1) Access token …");
   const accessToken = await getAccessToken();
@@ -331,10 +284,16 @@ async function main() {
   const locations = await listLocations(accessToken, ENV.GBP_ACCOUNT_ID);
   console.log(`✓ ${locations.length} locations`);
 
-  const allRows = [];
+  // Ausgabe-Arrays – exakt wie omlocal
+  const locationTotals        = [];  // Wochensumme je Standort (lowercase)
+  const locationByDates       = [];  // Tageswerte je Standort (kapitalisiert)
+  const combinedInsightsByDate = []; // Tageswerte + prev_* (lowercase)
+  const byDateSumMap          = new Map(); // Gesamt-Tagessumme (kapitalisiert)
+  const totalSum              = ZERO();
+
   const skipped = [];
 
-  console.log("\n3) Daily Insights (Performance API) …");
+  console.log("\n3) Weekly Insights …");
 
   await asyncPool(ENV.CONCURRENCY, locations, async (loc) => {
     const locationId    = (loc.name || "").split("/").pop();
@@ -342,75 +301,130 @@ async function main() {
     const locationTitle = (loc.title || "").trim();
 
     if (!locationId) return;
-
-    if (SKIP_TITLES.has(locationTitle)) {
-      console.log(`  ⏭ ${locationTitle} (übersprungen)`);
-      return;
-    }
+    if (SKIP_TITLES.has(locationTitle)) { console.log(`  ⏭ ${locationTitle}`); return; }
 
     const standort = STORE_NAMES[storeCode] || TITLE_NAMES[locationTitle] || locationTitle || storeCode;
 
-    let dailyRows;
+    let curByDate, prevByDate;
     try {
-      dailyRows = await fetchDailyInsightsForLocation(accessToken, locationId, start, end);
+      curByDate  = await fetchPeriodByDate(accessToken, locationId, curStart,  curEnd);
+      prevByDate = await fetchPeriodByDate(accessToken, locationId, prevStart, prevEnd);
     } catch (e) {
       console.warn(`  ⚠ ${standort}: ${e.message}`);
       skipped.push(standort);
       return;
     }
 
-    console.log(`  ✓ ${standort}: ${dailyRows.length} Tage`);
+    const curDates = [...new Set([...Object.keys(curByDate)])].sort();
+    if (!curDates.length) return;
+    console.log(`  ✓ ${standort}: ${curDates.length} Tage`);
 
-    for (const r of dailyRows) {
-      allRows.push({
-        Standort:                    standort,
-        Datum:                       r.Datum,
-        views:                       r.views,
-        actions:                     r.actions,
-        views_search:                r.views_search,
-        views_maps:                  r.views_maps,
-        actions_website:             r.actions_website,
-        actions_phone:               r.actions_phone,
-        actions_driving_directions:  r.actions_driving_directions,
+    // --- locationTotals (lowercase, Wochensumme) ---
+    const locTotal = { Standort: standort, ...ZERO() };
+    for (const d of curDates) addTo(locTotal, curByDate[d] || ZERO());
+    locationTotals.push(locTotal);
+    addTo(totalSum, locTotal);
+
+    // --- Für jede Tag der aktuellen Woche ---
+    for (let i = 0; i < curDates.length; i++) {
+      const date    = curDates[i];
+      const cur     = curByDate[date]  || ZERO();
+
+      // Vorperiode: gleicher Wochentag-Offset (Tag 0 der cur = Tag 0 der prev)
+      const prevDates = [...new Set([...Object.keys(prevByDate)])].sort();
+      const prev    = prevByDate[prevDates[i]] || ZERO();
+
+      // --- locationByDates (kapitalisiert, Leerzeichen) ---
+      locationByDates.push({
+        Standort:           standort,
+        Datum:              date,
+        Views:              cur.views,
+        Actions:            cur.actions,
+        "Views Search":     cur.views_search,
+        "Views Maps":       cur.views_maps,
+        "Actions Website":  cur.actions_website,
+        "Actions Phone":    cur.actions_phone,
+        "Actions Directions": cur.actions_driving_directions,
       });
+
+      // --- combinedInsightsByDate (lowercase + prev_*) ---
+      combinedInsightsByDate.push({
+        Standort:                       standort,
+        views:                          cur.views,
+        actions:                        cur.actions,
+        views_search:                   cur.views_search,
+        views_maps:                     cur.views_maps,
+        actions_website:                cur.actions_website,
+        actions_phone:                  cur.actions_phone,
+        actions_driving_directions:     cur.actions_driving_directions,
+        date,
+        prev_views:                     prev.views,
+        prev_actions:                   prev.actions,
+        prev_views_search:              prev.views_search,
+        prev_views_maps:                prev.views_maps,
+        prev_actions_website:           prev.actions_website,
+        prev_actions_phone:             prev.actions_phone,
+        prev_actions_driving_directions: prev.actions_driving_directions,
+      });
+
+      // --- byDateSumMap (kapitalisiert) ---
+      if (!byDateSumMap.has(date)) {
+        byDateSumMap.set(date, {
+          Datum: date, Views: 0, Actions: 0,
+          "Views Search": 0, "Views Maps": 0,
+          "Actions Website": 0, "Actions Phone": 0, "Actions Directions": 0,
+        });
+      }
+      const row = byDateSumMap.get(date);
+      row.Views               += cur.views;
+      row.Actions             += cur.actions;
+      row["Views Search"]     += cur.views_search;
+      row["Views Maps"]       += cur.views_maps;
+      row["Actions Website"]  += cur.actions_website;
+      row["Actions Phone"]    += cur.actions_phone;
+      row["Actions Directions"] += cur.actions_driving_directions;
     }
   });
 
-  // Sortierung: Standort → Datum
-  allRows.sort((a, b) =>
-    a.Standort.localeCompare(b.Standort) || a.Datum.localeCompare(b.Datum)
-  );
+  const byDate = [...byDateSumMap.values()].sort((a, b) => a.Datum.localeCompare(b.Datum));
 
-  console.log(`\n✓ Total Zeilen: ${allRows.length}`);
+  locationTotals.sort((a, b)         => a.Standort.localeCompare(b.Standort));
+  locationByDates.sort((a, b)        => a.Standort.localeCompare(b.Standort) || a.Datum.localeCompare(b.Datum));
+  combinedInsightsByDate.sort((a, b) => a.Standort.localeCompare(b.Standort) || a.date.localeCompare(b.date));
+
+  console.log(`\n✓ Standorte: ${locationTotals.length} | Tageszeilen: ${locationByDates.length}`);
   if (skipped.length) console.log(`⚠ Übersprungen: ${skipped.join(", ")}`);
 
-  // -------------------- CSV Export --------------------
-  const dateFrom = start.toFormat("yyyy-MM-dd");
-  const dateTo   = end.toFormat("yyyy-MM-dd");
-  const filename = `gbp-insights-daily-${dateFrom}..${dateTo}.csv`;
-
-  const csv = Papa.unparse(allRows);
-  fs.writeFileSync(filename, "\uFEFF" + csv, "utf-8");
-  console.log(`\n📄 CSV gespeichert: ${filename}`);
+  // -------------------- CSV Export (exakt wie omlocal) --------------------
+  const prefix = `gbp-weekly-${dateFrom}_bis_${dateTo}`;
+  fs.writeFileSync(`${prefix}_location_total.csv`,   "\uFEFF" + Papa.unparse(locationTotals));
+  fs.writeFileSync(`${prefix}_location_bydate.csv`,  "\uFEFF" + Papa.unparse(locationByDates));
+  fs.writeFileSync(`${prefix}_total.csv`,            "\uFEFF" + Papa.unparse([totalSum]));
+  fs.writeFileSync(`${prefix}_bydate.csv`,           "\uFEFF" + Papa.unparse(byDate));
+  fs.writeFileSync(`${prefix}_combined_bydate.csv`,  "\uFEFF" + Papa.unparse(combinedInsightsByDate));
+  console.log(`\n📄 CSVs gespeichert (${prefix}_*.csv)`);
 
   // -------------------- Make Webhook --------------------
-  if (ENV.MAKE_INSIGHTS_WEBHOOK_URL_DAILY) {
-    const res = await requestWithRetry(ENV.MAKE_INSIGHTS_WEBHOOK_URL_DAILY, {
+  if (ENV.MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY) {
+    const res = await requestWithRetry(ENV.MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        type:      "gbp_insights_daily",
+        type:                   "full",
         dateFrom,
         dateTo,
-        row_count: allRows.length,
+        locationTotals,
+        locationByDates,
+        total:                  totalSum,
+        byDate,
+        combinedInsightsByDate,
         skipped,
-        rows:      allRows,
       }),
     });
     const txt = await res.text().catch(() => "");
     console.log(`🚀 Make Webhook → ${res.status} ${txt.slice(0, 100)}`);
   } else {
-    console.log("ℹ️  MAKE_INSIGHTS_WEBHOOK_URL_DAILY nicht gesetzt – Webhook übersprungen");
+    console.log("ℹ️  MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY nicht gesetzt – Webhook übersprungen");
   }
 
   console.log("\n✅ Fertig");
