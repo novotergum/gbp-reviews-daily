@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "gbp:daily": "node scripts/gbp-reviews-daily.js"
+    "gbp:daily":   "node scripts/gbp-reviews-daily.js",
+    "gbp:history": "node scripts/gbp-reviews-history.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "luxon": "^3.5.0"
+    "luxon": "^3.5.0",
+    "papaparse": "^5.4.1"
   }
 }
