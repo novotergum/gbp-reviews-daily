@@ -10,7 +10,7 @@ const ENV = {
   GBP_REFRESH_TOKEN: (process.env.GBP_REFRESH_TOKEN || "").trim(),
   GBP_ACCOUNT_ID:    (process.env.GBP_ACCOUNT_ID    || "").trim(),
 
-  ZAPIER_WEBHOOK_DATA_URL: (process.env.ZAPIER_WEBHOOK_DATA_URL || "").trim(),
+  MAKE_REVIEWS_WEBHOOK_URL_MONTHLY: (process.env.MAKE_REVIEWS_WEBHOOK_URL_MONTHLY || "").trim(),
 
   CONCURRENCY: Number(process.env.CONCURRENCY || "5"),
 };
@@ -21,13 +21,12 @@ function mustEnv(key) {
 }
 
 // -------------------- TIME RANGE --------------------
-// Letzte 12 Monate bis einschließlich letzten Sonntag (wie Omlocal-Script)
+// Letzte 12 Monate bis einschließlich letzten Sonntag
 const TZ = "Europe/Berlin";
 
 function getLast12MonthsRange() {
   const today = DateTime.now().setZone(TZ).startOf("day");
 
-  // Letzten Montag finden, dann einen Tag zurück = letzter Sonntag
   const weekday = today.weekday; // 1=Mo … 7=So
   const lastMonday = today.minus({ days: weekday - 1 });
   const end = lastMonday.minus({ days: 1 }); // letzter Sonntag
@@ -209,8 +208,8 @@ async function main() {
   mustEnv("GBP_REFRESH_TOKEN");
   mustEnv("GBP_ACCOUNT_ID");
 
-  console.log(`TZ:     ${TZ}`);
-  console.log(`Range:  ${start.toISODate()} → ${end.toISODate()}`);
+  console.log(`TZ:      ${TZ}`);
+  console.log(`Range:   ${start.toISODate()} → ${end.toISODate()}`);
   console.log(`Account: ${ENV.GBP_ACCOUNT_ID}`);
 
   console.log("\n1) Access token …");
@@ -246,12 +245,11 @@ async function main() {
     console.log(`  ${storeCode || locationTitle}: ${reviews.length} review(s)`);
 
     for (const r of reviews) {
-      const dt        = DateTime.fromISO(r.createTime, { setZone: true }).setZone(TZ);
-      const rating    = starRatingToInt(r.starRating);
-      const reviewer  = (r.reviewer?.displayName || r.reviewer?.profileName || "").trim();
-      const comment   = cleanComment(r.comment || "");
+      const dt       = DateTime.fromISO(r.createTime, { setZone: true }).setZone(TZ);
+      const rating   = starRatingToInt(r.starRating);
+      const reviewer = (r.reviewer?.displayName || r.reviewer?.profileName || "").trim();
+      const comment  = cleanComment(r.comment || "");
 
-      // Antwort (falls vorhanden)
       const reply     = cleanComment(r.reviewReply?.comment || "");
       const repliedAt = r.reviewReply?.updateTime
         ? DateTime.fromISO(r.reviewReply.updateTime, { setZone: true })
@@ -260,16 +258,16 @@ async function main() {
         : null;
 
       rows.push({
-        Date:       dt.toFormat("dd.MM.yyyy"),
-        Time:       dt.toFormat("HH:mm:ss"),
-        Rating:     rating,
-        Store:      locationTitle || storeCode || null,
-        StoreCode:  storeCode || null,
-        Comment:    comment || null,
-        Reviewer:   reviewer || null,
-        Reply:      reply || null,           // GBP-Antwort (ersetzt omlocal "Replied by…")
-        RepliedAt:  repliedAt || null,
-        Channel:    "Google",
+        Date:      dt.toFormat("dd.MM.yyyy"),
+        Time:      dt.toFormat("HH:mm:ss"),
+        Rating:    rating,
+        Store:     locationTitle || storeCode || null,
+        StoreCode: storeCode || null,
+        Comment:   comment || null,
+        Reviewer:  reviewer || null,
+        Reply:     reply || null,
+        RepliedAt: repliedAt || null,
+        Channel:   "Google",
       });
 
       await sleep(60);
@@ -277,7 +275,6 @@ async function main() {
   });
 
   rows.sort((a, b) => {
-    // Sortierung: neueste zuerst
     const dtA = DateTime.fromFormat(`${a.Date} ${a.Time}`, "dd.MM.yyyy HH:mm:ss", { zone: TZ });
     const dtB = DateTime.fromFormat(`${b.Date} ${b.Time}`, "dd.MM.yyyy HH:mm:ss", { zone: TZ });
     return dtB.toMillis() - dtA.toMillis();
@@ -291,12 +288,12 @@ async function main() {
   const filename = `gbp-reviews-${dateFrom}..${dateTo}.csv`;
 
   const csv = Papa.unparse(rows);
-  fs.writeFileSync(filename, "\uFEFF" + csv, "utf-8"); // BOM für Excel
+  fs.writeFileSync(filename, "\uFEFF" + csv, "utf-8");
   console.log(`\n📄 CSV gespeichert: ${filename}`);
 
-  // -------------------- Zapier Webhook (optional) --------------------
-  if (ENV.ZAPIER_WEBHOOK_DATA_URL) {
-    const res = await requestWithRetry(ENV.ZAPIER_WEBHOOK_DATA_URL, {
+  // -------------------- Make Webhook (optional) --------------------
+  if (ENV.MAKE_REVIEWS_WEBHOOK_URL_MONTHLY) {
+    const res = await requestWithRetry(ENV.MAKE_REVIEWS_WEBHOOK_URL_MONTHLY, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -308,9 +305,9 @@ async function main() {
       }),
     });
     const txt = await res.text().catch(() => "");
-    console.log(`🚀 Webhook → ${res.status} ${txt.slice(0, 100)}`);
+    console.log(`🚀 Make Webhook → ${res.status} ${txt.slice(0, 100)}`);
   } else {
-    console.log("ℹ️  ZAPIER_WEBHOOK_DATA_URL nicht gesetzt – Webhook übersprungen");
+    console.log("ℹ️  MAKE_REVIEWS_WEBHOOK_URL_MONTHLY nicht gesetzt – Webhook übersprungen");
   }
 
   console.log("\n✅ Fertig");
