@@ -10,7 +10,7 @@ const ENV = {
   GBP_REFRESH_TOKEN: (process.env.GBP_REFRESH_TOKEN || "").trim(),
   GBP_ACCOUNT_ID:    (process.env.GBP_ACCOUNT_ID    || "").trim(),
 
-  MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY: (process.env.MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY || "").trim(),
+  MAKE_INSIGHTS_WEBHOOK_URL_DAILY: (process.env.MAKE_INSIGHTS_WEBHOOK_URL_DAILY || "").trim(),
 
   CONCURRENCY: Number(process.env.CONCURRENCY || "1"),
 };
@@ -405,8 +405,8 @@ async function main() {
   console.log(`\n📄 CSVs gespeichert (${prefix}_*.csv)`);
 
   // -------------------- Make Webhook --------------------
-  if (ENV.MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY) {
-    const res = await requestWithRetry(ENV.MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY, {
+  if (ENV.MAKE_INSIGHTS_WEBHOOK_URL_DAILY) {
+    const res = await requestWithRetry(ENV.MAKE_INSIGHTS_WEBHOOK_URL_DAILY, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -424,7 +424,7 @@ async function main() {
     const txt = await res.text().catch(() => "");
     console.log(`🚀 Make Webhook → ${res.status} ${txt.slice(0, 100)}`);
   } else {
-    console.log("ℹ️  MAKE_INSIGHTS_WEBHOOK_URL_WEEKLY nicht gesetzt – Webhook übersprungen");
+    console.log("ℹ️  MAKE_INSIGHTS_WEBHOOK_URL_DAILY nicht gesetzt – Webhook übersprungen");
   }
 
   console.log("\n✅ Fertig");
