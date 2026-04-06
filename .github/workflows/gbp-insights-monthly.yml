@@ -1,0 +1,29 @@
+name: GBP Insights Monthly -> Make
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 1 * *"  # 1. jeden Monat, 06:00 UTC
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm run gbp:insights
+        env:
+          GBP_CLIENT_ID:                     ${{ secrets.GBP_CLIENT_ID }}
+          GBP_CLIENT_SECRET:                 ${{ secrets.GBP_CLIENT_SECRET }}
+          GBP_REFRESH_TOKEN:                 ${{ secrets.GBP_REFRESH_TOKEN }}
+          GBP_ACCOUNT_ID:                    ${{ secrets.GBP_ACCOUNT_ID }}
+          MAKE_INSIGHTS_WEBHOOK_URL_MONTHLY: ${{ secrets.MAKE_INSIGHTS_WEBHOOK_URL_MONTHLY }}
+          CONCURRENCY:                       "3"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gbp-insights-csv
+          path: "gbp-insights-*.csv"
+          retention-days: 30
