@@ -22,7 +22,7 @@ jobs:
         run: npm install
  
       - name: Run history job
-        run: node gbp-reviews-history.mjs
+        run: npm run gbp:history
         env:
           GBP_CLIENT_ID:           ${{ secrets.GBP_CLIENT_ID }}
           GBP_CLIENT_SECRET:       ${{ secrets.GBP_CLIENT_SECRET }}
