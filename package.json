@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "gbp:daily":   "node scripts/gbp-reviews-daily.js",
-    "gbp:history": "node scripts/gbp-reviews-history.mjs"
+    "gbp:history": "node scripts/gbp-reviews-history.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
