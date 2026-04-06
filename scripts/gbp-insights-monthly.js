@@ -116,10 +116,11 @@ const SKIP_TITLES = new Set([
 const TITLE_NAMES = {
   "NOVOTERGUM Physiotherapie & Ergotherapie Hamburg-Harburg": "Hamburg-Harburg",
   "NOVOTERGUM Osteopathie Berlin-Lichtenberg Osteo":          "Berlin-Lichtenberg O",
-  "NOVOTERGUM GmbH":                                          "Zentral",
+  "NOVOTERGUM GmbH":                                          "Zentrale",
   "Berg Therapie - Ganzheitliche Physiotherapie":             "Bornheim (Berg Therapie)",
   "Berg Therapie - Physiotherapie / Osteopathie & mehr":      "Erftstadt (Berg Therapie)",
   "Berg Therapie Inh. Christopher Berg":                      "Brühl (Berg Therapie)",
+  "minus85GRAD - KRYOTHERAPIE":                               "minus85GRAD",
 };
 
 // -------------------- Metrics --------------------
