@@ -12,7 +12,7 @@ const ENV = {
   PREFILL_SECRET: (process.env.PREFILL_SECRET || "").trim(),
   PUBLIC_APP_URL: (process.env.PUBLIC_APP_URL || "https://smart-reply-generator-production2.up.railway.app").trim(),
 
- MAKE_REVIEWS_WEBHOOK_URL_V2: (process.env.MAKE_REVIEWS_WEBHOOK_URL_V2 || "").trim(),
+ MAKE_TAG_REVIEWS_WEBHOOK_URL: (process.env.MAKE_TAG_REVIEWS_WEBHOOK_URL || "").trim(),
 
   // optional tuning
   CONCURRENCY: Number(process.env.CONCURRENCY || "5"),
@@ -254,9 +254,9 @@ async function createPrefillRid(payload) {
 
 // -------------------- Make Webhook --------------------
 async function postToMake(payload) {
-  mustEnv("MAKE_REVIEWS_WEBHOOK_URL_V2");
+  mustEnv("MAKE_TAG_REVIEWS_WEBHOOK_URL");
 
-  const res = await requestWithRetry(ENV.MAKE_REVIEWS_WEBHOOK_URL_V2, {
+  const res = await requestWithRetry(ENV.MAKE_TAG_REVIEWS_WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -298,7 +298,7 @@ async function asyncPool(limit, items, iteratorFn) {
 // -------------------- MAIN --------------------
 async function main() {
   mustEnv("GBP_ACCOUNT_ID");
-  mustEnv("MAKE_REVIEWS_WEBHOOK_URL_V2");
+  mustEnv("MAKE_TAG_REVIEWS_WEBHOOK_URL");
   mustEnv("PREFILL_API_URL");
   mustEnv("PREFILL_SECRET");
 
@@ -308,7 +308,7 @@ async function main() {
   console.log(`Range (yesterday Berlin): ${start.toISO()} -> ${end.toISO()}`);
   console.log(`Account: ${ENV.GBP_ACCOUNT_ID}`);
   console.log(`Prefill API: ${ENV.PREFILL_API_URL}`);
-  console.log(`Make webhook: ${mask(ENV.MAKE_REVIEWS_WEBHOOK_URL_V2)}`);
+  console.log(`Make webhook: ${mask(ENV.MAKE_TAG_REVIEWS_WEBHOOK_URL)}`);
 
   console.log("\n1) Access token …");
   const accessToken = await getAccessToken();

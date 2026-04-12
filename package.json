@@ -7,7 +7,7 @@
     "gbp:history": "node scripts/gbp-reviews-history.js",
     "gbp:insights": "node scripts/gbp-insights-monthly.js",
     "gbp:insights:daily": "node scripts/gbp-insights-daily.js",
-    "gbp:daily:v2": "node scripts/gbp-daily-v2.js",
+    "gbp:tag-reviews": "node scripts/gbp-tag-reviews.js",
     "gbp:insights:weekly": "node scripts/gbp-insights-weekly.js"
   },
   "dependencies": {

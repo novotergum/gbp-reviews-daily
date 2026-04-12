@@ -1,4 +1,4 @@
-name: GBP Reviews Daily V2 -> Make
+name: GBP Tag Reviews -> Make
 
 on:
   workflow_dispatch: {}
@@ -22,8 +22,8 @@ jobs:
       - name: Install deps
         run: npm install
 
-      - name: Run daily job
-        run: npm run gbp:daily:v2
+      - name: Run tag reviews
+        run: npm run gbp:tag-reviews
         env:
           GBP_CLIENT_ID: ${{ secrets.GBP_CLIENT_ID }}
           GBP_CLIENT_SECRET: ${{ secrets.GBP_CLIENT_SECRET }}
@@ -34,7 +34,7 @@ jobs:
           PREFILL_SECRET: ${{ secrets.PREFILL_SECRET }}
           PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
 
-          MAKE_REVIEWS_WEBHOOK_URL_V2: ${{ secrets.MAKE_REVIEWS_WEBHOOK_URL_V2 }} 
+          MAKE_TAG_REVIEWS_WEBHOOK_URL: ${{ secrets.MAKE_TAG_REVIEWS_WEBHOOK_URL }}
 
           CONCURRENCY: "5"
           MAKE_BATCH_SIZE: "200"
