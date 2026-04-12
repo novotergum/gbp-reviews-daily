@@ -10,7 +10,7 @@ const ENV = {
   GBP_REFRESH_TOKEN: (process.env.GBP_REFRESH_TOKEN || "").trim(),
   GBP_ACCOUNT_ID:    (process.env.GBP_ACCOUNT_ID    || "").trim(),
 
-  MAKE_INSIGHTS_WEBHOOK_URL_DAILY: (process.env.MAKE_INSIGHTS_WEBHOOK_URL_DAILY || "").trim(),
+  MAKE_INSIGHTS_WEBHOOK_URL_DAILY: (process.env.MAKE_INSIGHTS_WEBHOOK_URL_DAILY_V2 || "").trim(),
 
   CONCURRENCY: Number(process.env.CONCURRENCY || "1"),
 };
