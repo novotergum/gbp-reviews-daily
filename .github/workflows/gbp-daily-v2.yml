@@ -34,7 +34,7 @@ jobs:
           PREFILL_SECRET: ${{ secrets.PREFILL_SECRET }}
           PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
 
-          MAKE_INSIGHTS_WEBHOOK_URL_DAILY_V2: ${{ secrets.MAKE_INSIGHTS_WEBHOOK_URL_DAILY_V2 }}
+          AKE_REVIEWS_WEBHOOK_URL_V2: ${{ secrets.MAKE_REVIEWS_WEBHOOK_URL_V2 }} 
 
           CONCURRENCY: "5"
           MAKE_BATCH_SIZE: "200"
