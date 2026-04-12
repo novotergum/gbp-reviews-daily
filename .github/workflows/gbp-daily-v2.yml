@@ -1,39 +1,40 @@
-name: GBP Insights Daily -> Make
+name: GBP Reviews Daily V2 -> Make
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "30 4 * * *" # UTC
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 25
 
     steps:
-      - name: 📥 Checkout Repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 🧰 Node installieren
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: 📦 Abhängigkeiten installieren
+      - name: Install deps
         run: npm install
 
-      - name: 📄 Daily Insights ausführen
+      - name: Run daily job
         run: npm run gbp:daily:v2
         env:
-          GBP_CLIENT_ID:                   ${{ secrets.GBP_CLIENT_ID }}
-          GBP_CLIENT_SECRET:               ${{ secrets.GBP_CLIENT_SECRET }}
-          GBP_REFRESH_TOKEN:               ${{ secrets.GBP_REFRESH_TOKEN }}
-          GBP_ACCOUNT_ID:                  ${{ secrets.GBP_ACCOUNT_ID }}
-          MAKE_INSIGHTS_WEBHOOK_URL_DAILY: ${{ secrets.MAKE_INSIGHTS_WEBHOOK_URL_DAILY_V2 }}
-          CONCURRENCY:                     "1"
+          GBP_CLIENT_ID: ${{ secrets.GBP_CLIENT_ID }}
+          GBP_CLIENT_SECRET: ${{ secrets.GBP_CLIENT_SECRET }}
+          GBP_REFRESH_TOKEN: ${{ secrets.GBP_REFRESH_TOKEN }}
+          GBP_ACCOUNT_ID: ${{ secrets.GBP_ACCOUNT_ID }}
 
-      - name: 📤 CSV als Artifact hochladen
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gbp-insights-daily-v2.csv
-          path: "gbp-insights-daily-v2.csv"
-          retention-days: 30
+          PREFILL_API_URL: ${{ secrets.PREFILL_API_URL }}
+          PREFILL_SECRET: ${{ secrets.PREFILL_SECRET }}
+          PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
+
+          MAKE_INSIGHTS_WEBHOOK_URL_DAILY_V2: ${{ secrets.MAKE_INSIGHTS_WEBHOOK_URL_DAILY_V2 }}
+
+          CONCURRENCY: "5"
+          MAKE_BATCH_SIZE: "200"
