@@ -1,18 +1,22 @@
 import "dotenv/config";
 import { DateTime } from "luxon";
-import fs from "fs";
-import Papa from "papaparse";
 
 // -------------------- ENV --------------------
 const ENV = {
-  GBP_CLIENT_ID:     (process.env.GBP_CLIENT_ID     || "").trim(),
+  GBP_CLIENT_ID: (process.env.GBP_CLIENT_ID || "").trim(),
   GBP_CLIENT_SECRET: (process.env.GBP_CLIENT_SECRET || "").trim(),
   GBP_REFRESH_TOKEN: (process.env.GBP_REFRESH_TOKEN || "").trim(),
-  GBP_ACCOUNT_ID:    (process.env.GBP_ACCOUNT_ID    || "").trim(),
+  GBP_ACCOUNT_ID: (process.env.GBP_ACCOUNT_ID || "").trim(),
 
-  MAKE_INSIGHTS_WEBHOOK_URL_DAILY: (process.env.MAKE_INSIGHTS_WEBHOOK_URL_DAILY_V2 || "").trim(),
+  PREFILL_API_URL: (process.env.PREFILL_API_URL || "").trim(),
+  PREFILL_SECRET: (process.env.PREFILL_SECRET || "").trim(),
+  PUBLIC_APP_URL: (process.env.PUBLIC_APP_URL || "https://smart-reply-generator-production2.up.railway.app").trim(),
 
-  CONCURRENCY: Number(process.env.CONCURRENCY || "1"),
+  MAKE_REVIEWS_WEBHOOK_URL: (process.env.MAKE_REVIEWS_WEBHOOK_URL_V2 || "").trim(),
+
+  // optional tuning
+  CONCURRENCY: Number(process.env.CONCURRENCY || "5"),
+  MAKE_BATCH_SIZE: Number(process.env.MAKE_BATCH_SIZE || "200"),
 };
 
 function mustEnv(key) {
@@ -20,111 +24,49 @@ function mustEnv(key) {
   return ENV[key];
 }
 
-// -------------------- TIME RANGE --------------------
-// Montag vor 8 Wochen bis Sonntag vor 2 Wochen = 7 Wochen Daten (exakt wie omlocal_trend.js)
-// Vorperiode: gleiche 7 Wochen, 7 Wochen früher (für prev_* Felder)
-const TZ = "Europe/Berlin";
-
-function getRanges() {
-  const today   = DateTime.now().setZone(TZ).startOf("day");
-  const weekday = today.weekday;
-  const monday  = today.minus({ days: weekday - 1 }); // Montag diese Woche
-
-  const curStart  = monday.minus({ weeks: 8 });        // Montag vor 8 Wochen
-  const curEnd    = monday.minus({ days: 8 });          // Sonntag vor 2 Wochen (= 7 Wochen Daten)
-
-  const prevStart = curStart.minus({ weeks: 7 });       // gleiche Länge, 7 Wochen früher
-  const prevEnd   = curEnd.minus({ weeks: 7 });
-
-  return { curStart, curEnd, prevStart, prevEnd };
+function mask(s) {
+  if (!s) return "";
+  if (s.length <= 8) return "***";
+  return `${s.slice(0, 3)}***${s.slice(-3)}`;
 }
 
-const { curStart, curEnd, prevStart, prevEnd } = getRanges();
-const dateFrom = curStart.toISODate();
-const dateTo   = curEnd.toISODate();
+// -------------------- TIME RANGE (Yesterday in Europe/Berlin) --------------------
+const TZ = "Europe/Berlin";
 
-// -------------------- StoreCode -> Standort --------------------
-const STORE_NAMES = {
-  NTST001: "Alsfeld",         NTST002: "Bad Laer",          NTST003: "Bad Oeynhausen",
-  NTST004: "Bargfeld-Stegen", NTST005: "Bergisch Gladbach",  NTST006: "Berlin-Lichtenberg E",
-  NTST007: "Berlin-Lichtenberg P",                           NTST008: "Bielefeld-Brackwede",
-  NTST009: "Bielefeld-Innenstadt",                           NTST010: "Bielefeld-Senne",
-  NTST011: "Bochum-Goy",      NTST012: "Bochum SMZ Ruhrpark", NTST013: "Bochum SMZ Mitte",
-  NTST014: "Bochum-Wattenscheid",                            NTST015: "Bochum-Altenbochum",
-  NTST016: "Bochum-Innenstadt", NTST017: "Bonn",             NTST018: "Braunschweig",
-  NTST019: "Brühl",           NTST020: "Dorsten",            NTST021: "Dortmund",
-  NTST022: "Dortmund-Kirchlinde", NTST023: "Duisburg",       NTST024: "Düsseldorf",
-  NTST025: "Essen",           NTST026: "Euskirchen",         NTST027: "Gelsenkirchen",
-  NTST028: "Gelsenkirchen-Buer", NTST029: "Gladbeck",        NTST030: "Hagen",
-  NTST031: "Hamburg-Berliner Tor", NTST032: "Hamburg Kaifu", NTST033: "Hamburg-Rahlstedt",
-  NTST034: "Heidelberg",      NTST035: "Herten",             NTST036: "Hürth-Gleuel",
-  NTST037: "Hürth-Hermülheim", NTST038: "Kempen",            NTST039: "Köln-Ford",
-  NTST040: "Köln-Lindenthal", NTST041: "Köln-Rodenkirchen",  NTST042: "Korbach",
-  NTST043: "Krefeld",         NTST044: "Leopoldshöhe",       NTST045: "Lübbecke",
-  NTST046: "Menden",          NTST047: "Mülheim",            NTST048: "Mülheim-Flughafen",
-  NTST049: "Neckarsulm",      NTST050: "Neuenkirchen",       NTST051: "Nieder-Olm",
-  NTST052: "Oer-Erkenschwick", NTST053: "Offenbach",         NTST054: "Recklinghausen H.",
-  NTST055: "Recklinghausen O.", NTST056: "Büdingen",         NTST057: "Salzgitter MEDIFIT",
-  NTST058: "Salzgitter iTZ Bad", NTST059: "Salzgitter iTZ",  NTST060: "Sindelfingen",
-  NTST061: "Solingen",        NTST062: "Sülfeld",            NTST063: "Troisdorf",
-  NTST064: "Warendorf",       NTST065: "Windeck",            NTST066: "Witten",
-  NTST067: "Wuppertal",
-};
-
-const SKIP_TITLES = new Set([
-  "NOVOTERGUM Physiotherapie Berg-Therapie",
-  "NOVOTERGUM Berlin Lichtenberg Logotherapie",
-]);
-
-const TITLE_NAMES = {
-  "NOVOTERGUM Physiotherapie & Ergotherapie Hamburg-Harburg": "Hamburg-Harburg",
-  "NOVOTERGUM Osteopathie Berlin-Lichtenberg Osteo":          "Berlin-Lichtenberg O",
-  "NOVOTERGUM GmbH":                                          "Zentrale",
-  "Berg Therapie - Ganzheitliche Physiotherapie":             "Bornheim (Berg Therapie)",
-  "Berg Therapie - Physiotherapie / Osteopathie & mehr":      "Erftstadt (Berg Therapie)",
-  "Berg Therapie Inh. Christopher Berg":                      "Brühl (Berg Therapie)",
-  "minus85GRAD - KRYOTHERAPIE":                               "minus85GRAD",
-};
-
-// -------------------- Metrics --------------------
-const METRICS = [
-  "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
-  "BUSINESS_IMPRESSIONS_MOBILE_SEARCH",
-  "BUSINESS_IMPRESSIONS_DESKTOP_MAPS",
-  "BUSINESS_IMPRESSIONS_MOBILE_MAPS",
-  "WEBSITE_CLICKS",
-  "CALL_CLICKS",
-  "BUSINESS_DIRECTION_REQUESTS",
-];
+function getYesterdayRangeBerlin() {
+  const now = DateTime.now().setZone(TZ);
+  const y = now.minus({ days: 1 });
+  const start = y.startOf("day");
+  const end = y.endOf("day");
+  return { start, end };
+}
 
 // -------------------- HTTP Helpers --------------------
 async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function requestWithRetry(url, options = {}, { retries = 5, baseBackoffMs = 2000 } = {}) {
+async function requestWithRetry(url, options = {}, { retries = 4, baseBackoffMs = 800 } = {}) {
   let lastErr;
+
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
-      if (res.status === 429) {
-        const wait = baseBackoffMs * Math.pow(2, i);
-        console.warn(`    429 – warte ${wait}ms …`);
-        await sleep(wait);
-        lastErr = new Error(`HTTP 429 Too Many Requests`);
-        continue;
-      }
-      if ([500, 502, 503, 504].includes(res.status)) {
-        lastErr = new Error(`HTTP ${res.status} ${res.statusText}`);
+
+      if ([429, 500, 502, 503, 504].includes(res.status)) {
+        const txt = await res.text().catch(() => "");
+        lastErr = new Error(`HTTP ${res.status} ${res.statusText}: ${txt}`);
         await sleep(baseBackoffMs * Math.pow(2, i));
         continue;
       }
+
       return res;
     } catch (e) {
       lastErr = e;
       await sleep(baseBackoffMs * Math.pow(2, i));
     }
   }
+
   throw lastErr || new Error("requestWithRetry failed");
 }
 
@@ -132,149 +74,241 @@ async function getJson(url, { headers = {}, params = null } = {}) {
   const u = new URL(url);
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null && String(v).length > 0)
-        u.searchParams.set(k, String(v));
+      if (v !== undefined && v !== null && String(v).length > 0) u.searchParams.set(k, String(v));
     }
   }
+
   const res = await requestWithRetry(u.toString(), { headers, method: "GET" });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     throw new Error(`GET ${u.toString()} -> ${res.status}: ${txt}`);
   }
-  return res.json();
+  return await res.json();
 }
 
-// -------------------- Google OAuth --------------------
+// -------------------- Google OAuth (Refresh Token -> Access Token) --------------------
 async function getAccessToken() {
+  mustEnv("GBP_CLIENT_ID");
+  mustEnv("GBP_CLIENT_SECRET");
+  mustEnv("GBP_REFRESH_TOKEN");
+
   const body = new URLSearchParams({
-    client_id:     ENV.GBP_CLIENT_ID,
+    client_id: ENV.GBP_CLIENT_ID,
     client_secret: ENV.GBP_CLIENT_SECRET,
     refresh_token: ENV.GBP_REFRESH_TOKEN,
-    grant_type:    "refresh_token",
+    grant_type: "refresh_token",
   });
+
   const res = await requestWithRetry("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });
+
   const txt = await res.text();
   if (!res.ok) throw new Error(`Token error ${res.status}: ${txt}`);
+
   const j = JSON.parse(txt);
-  if (!j.access_token) throw new Error(`No access_token: ${txt}`);
+  if (!j.access_token) throw new Error(`No access_token in token response: ${txt}`);
   return j.access_token;
 }
 
-// -------------------- GBP: Locations --------------------
+// -------------------- GBP APIs --------------------
+
+// Locations: Business Information API v1
 async function listLocations(accessToken, accountId) {
   const out = [];
   let pageToken = "";
+
   do {
     const j = await getJson(
       `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${accountId}/locations`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
-        params: { pageSize: "100", readMask: "name,title,storeCode", orderBy: "storeCode", pageToken },
+        params: {
+          pageSize: "100",
+          // NEW: metadata.* mitziehen (mapsUri, newReviewUri, placeId)
+          readMask: "name,title,storeCode,metadata.mapsUri,metadata.newReviewUri,metadata.placeId",
+          orderBy: "storeCode",
+          pageToken,
+        },
       }
     );
-    out.push(...(j.locations || []));
+
+    const locs = j.locations || [];
+    out.push(...locs);
+
     pageToken = j.nextPageToken || "";
   } while (pageToken);
+
   return out;
 }
 
-// -------------------- GBP: Performance API --------------------
-// Gibt Map zurück: "YYYY-MM-DD" -> Zahl
-async function fetchMetricMap(accessToken, locationId, metric, startDt, endDt) {
-  const j = await getJson(
-    `https://businessprofileperformance.googleapis.com/v1/locations/${locationId}:getDailyMetricsTimeSeries`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      params: {
-        dailyMetric:                   metric,
-        "dailyRange.startDate.year":   String(startDt.year),
-        "dailyRange.startDate.month":  String(startDt.month),
-        "dailyRange.startDate.day":    String(startDt.day),
-        "dailyRange.endDate.year":     String(endDt.year),
-        "dailyRange.endDate.month":    String(endDt.month),
-        "dailyRange.endDate.day":      String(endDt.day),
-      },
-    }
-  );
-  const map = {};
-  for (const d of j?.timeSeries?.datedValues || []) {
-    const { year, month, day } = d.date;
-    map[`${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`] = Number(d.value) || 0;
-  }
-  return map;
+// NEW: Fallback, falls metadata im List-Call nicht geliefert wird (oder leer ist)
+async function getLocationMetadata(accessToken, locationId) {
+  const j = await getJson(`https://mybusinessbusinessinformation.googleapis.com/v1/locations/${locationId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    params: {
+      readMask: "metadata.mapsUri,metadata.newReviewUri,metadata.placeId",
+    },
+  });
+  return j?.metadata || {};
 }
 
-// Holt alle Metrics für einen Zeitraum → Map: date → { views, actions, views_search, … }
-async function fetchPeriodByDate(accessToken, locationId, startDt, endDt) {
-  const mm = {};
-  for (const metric of METRICS) {
-    try {
-      mm[metric] = await fetchMetricMap(accessToken, locationId, metric, startDt, endDt);
-    } catch (e) {
-      mm[metric] = e.message.includes("403") ? {} : (() => { throw e; })();
+// Reviews: My Business API v4
+async function listReviewsForLocation(accessToken, accountId, locationId, startBerlin, endBerlin) {
+  const out = [];
+  let pageToken = "";
+  let pagesBelowCutoff = 0;
+
+  do {
+    const j = await getJson(
+      `https://mybusiness.googleapis.com/v4/accounts/${accountId}/locations/${locationId}/reviews`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: {
+          pageSize: "50",
+          orderBy: "updateTime desc",
+          pageToken,
+        },
+      }
+    );
+
+    const reviews = j.reviews || [];
+    if (reviews.length === 0) break;
+
+    let anyGeStart = false;
+
+    for (const r of reviews) {
+      const ct = r.createTime;
+      if (!ct) continue;
+
+      const dtBerlin = DateTime.fromISO(ct, { setZone: true }).setZone(TZ);
+
+      if (dtBerlin.toMillis() >= startBerlin.toMillis()) anyGeStart = true;
+
+      if (dtBerlin.toMillis() >= startBerlin.toMillis() && dtBerlin.toMillis() <= endBerlin.toMillis()) {
+        out.push(r);
+      }
     }
-    await sleep(600);
-  }
 
-  const dates = new Set();
-  for (const m of Object.values(mm)) for (const d of Object.keys(m)) dates.add(d);
+    if (!anyGeStart) pagesBelowCutoff += 1;
+    else pagesBelowCutoff = 0;
 
-  const byDate = {};
-  for (const date of dates) {
-    const vs  = (mm["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"][date] || 0) + (mm["BUSINESS_IMPRESSIONS_MOBILE_SEARCH"][date] || 0);
-    const vm  = (mm["BUSINESS_IMPRESSIONS_DESKTOP_MAPS"][date]   || 0) + (mm["BUSINESS_IMPRESSIONS_MOBILE_MAPS"][date]   || 0);
-    const aw  = mm["WEBSITE_CLICKS"][date]              || 0;
-    const ap  = mm["CALL_CLICKS"][date]                 || 0;
-    const ad  = mm["BUSINESS_DIRECTION_REQUESTS"][date] || 0;
-    byDate[date] = { views: vs + vm, actions: aw + ap + ad, views_search: vs, views_maps: vm,
-                     actions_website: aw, actions_phone: ap, actions_driving_directions: ad };
+    if (pagesBelowCutoff >= 2) break;
+
+    pageToken = j.nextPageToken || "";
+    if (pageToken) await sleep(120);
+  } while (pageToken);
+
+  return out;
+}
+
+function starRatingToInt(star) {
+  if (!star) return null;
+  const s = String(star).toUpperCase();
+  const map = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
+  return map[s] ?? null;
+}
+
+// -------------------- Comment cleaning --------------------
+function cleanComment(text) {
+  let t = (text || "").trim();
+  const markers = ["(Translated by Google)", "(Übersetzt von Google)"];
+  for (const m of markers) {
+    const idx = t.indexOf(m);
+    if (idx !== -1) t = t.slice(0, idx).trimEnd();
   }
-  return byDate;
+  return t;
+}
+
+function buildCommentFull(comment, reviewer, reviewedAt) {
+  const base = (comment || "").trim() || "(kein Kommentar)";
+  const name = (reviewer || "").trim() || "Unbekannt";
+  let suffix = `— ${name}`;
+  if (reviewedAt) suffix += `, am ${reviewedAt}`;
+  return `${base}\n${suffix}`;
+}
+
+// -------------------- Prefill API --------------------
+async function createPrefillRid(payload) {
+  mustEnv("PREFILL_API_URL");
+  mustEnv("PREFILL_SECRET");
+
+  const res = await requestWithRetry(ENV.PREFILL_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Prefill-Secret": ENV.PREFILL_SECRET,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const txt = await res.text();
+  if (!res.ok) throw new Error(`Prefill error ${res.status}: ${txt}`);
+
+  const j = JSON.parse(txt);
+  if (!j.rid) throw new Error(`Prefill response missing rid: ${txt}`);
+  return j.rid;
+}
+
+// -------------------- Make Webhook --------------------
+async function postToMake(payload) {
+  mustEnv("MAKE_REVIEWS_WEBHOOK_URL");
+
+  const res = await requestWithRetry(ENV.MAKE_REVIEWS_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const txt = await res.text().catch(() => "");
+  console.log(`Make response: ${res.status}`);
+  if (txt) console.log(`Make body (first 500 chars): ${txt.slice(0, 500)}`);
+
+  if (!res.ok) throw new Error(`Make webhook error ${res.status}: ${txt}`);
+}
+
+function chunkArray(arr, size) {
+  if (size <= 0) return [arr];
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
 }
 
 // -------------------- Concurrency pool --------------------
-async function asyncPool(limit, items, fn) {
+async function asyncPool(limit, items, iteratorFn) {
   const ret = [];
   const executing = [];
+
   for (const item of items) {
-    const p = Promise.resolve().then(() => fn(item));
+    const p = Promise.resolve().then(() => iteratorFn(item));
     ret.push(p);
+
     if (limit <= items.length) {
       const e = p.then(() => executing.splice(executing.indexOf(e), 1));
       executing.push(e);
       if (executing.length >= limit) await Promise.race(executing);
     }
   }
+
   return Promise.all(ret);
-}
-
-// -------------------- Aggregate helper --------------------
-const ZERO = () => ({ views: 0, actions: 0, views_search: 0, views_maps: 0,
-                       actions_website: 0, actions_phone: 0, actions_driving_directions: 0 });
-
-function addTo(acc, r) {
-  acc.views               += r.views               || 0;
-  acc.actions             += r.actions             || 0;
-  acc.views_search        += r.views_search        || 0;
-  acc.views_maps          += r.views_maps          || 0;
-  acc.actions_website     += r.actions_website     || 0;
-  acc.actions_phone       += r.actions_phone       || 0;
-  acc.actions_driving_directions += r.actions_driving_directions || 0;
 }
 
 // -------------------- MAIN --------------------
 async function main() {
-  mustEnv("GBP_CLIENT_ID");
-  mustEnv("GBP_CLIENT_SECRET");
-  mustEnv("GBP_REFRESH_TOKEN");
   mustEnv("GBP_ACCOUNT_ID");
+  mustEnv("MAKE_REVIEWS_WEBHOOK_URL");
+  mustEnv("PREFILL_API_URL");
+  mustEnv("PREFILL_SECRET");
 
-  console.log(`Zeitraum (Mo–So): ${dateFrom} bis ${dateTo}`);
-  console.log(`Vorperiode:       ${prevStart.toISODate()} bis ${prevEnd.toISODate()}`);
+  const { start, end } = getYesterdayRangeBerlin();
+
+  console.log(`TZ: ${TZ}`);
+  console.log(`Range (yesterday Berlin): ${start.toISO()} -> ${end.toISO()}`);
+  console.log(`Account: ${ENV.GBP_ACCOUNT_ID}`);
+  console.log(`Prefill API: ${ENV.PREFILL_API_URL}`);
+  console.log(`Make webhook: ${mask(ENV.MAKE_REVIEWS_WEBHOOK_URL)}`);
 
   console.log("\n1) Access token …");
   const accessToken = await getAccessToken();
@@ -282,155 +316,155 @@ async function main() {
 
   console.log("\n2) Locations …");
   const locations = await listLocations(accessToken, ENV.GBP_ACCOUNT_ID);
-  console.log(`✓ ${locations.length} locations`);
+  console.log(`✓ locations: ${locations.length}`);
 
-  // Ausgabe-Arrays – exakt wie omlocal
-  const locationTotals        = [];  // Wochensumme je Standort (lowercase)
-  const locationByDates       = [];  // Tageswerte je Standort (kapitalisiert)
-  const combinedInsightsByDate = []; // Tageswerte + prev_* (lowercase)
-  const byDateSumMap          = new Map(); // Gesamt-Tagessumme (kapitalisiert)
-  const totalSum              = ZERO();
+  const items = [];
 
-  const skipped = [];
-
-  console.log("\n3) Weekly Insights …");
+  console.log("\n3) Reviews (all locations, yesterday) …");
 
   await asyncPool(ENV.CONCURRENCY, locations, async (loc) => {
-    const locationId    = (loc.name || "").split("/").pop();
-    const storeCode     = (loc.storeCode || "").toString().trim();
+    const locName = (loc.name || "").trim(); // e.g. "locations/123"
+    const locationId = locName.split("/").pop();
+    const storeCode = (loc.storeCode || "").toString().trim();
     const locationTitle = (loc.title || "").trim();
 
     if (!locationId) return;
-    if (SKIP_TITLES.has(locationTitle)) { console.log(`  ⏭ ${locationTitle}`); return; }
 
-    const standort = STORE_NAMES[storeCode] || TITLE_NAMES[locationTitle] || locationTitle || storeCode;
+    // NEW: Location-Metadaten (Maps-Link + Review-Link + PlaceId)
+    let maps_uri = loc?.metadata?.mapsUri || "";
+    let new_review_uri = loc?.metadata?.newReviewUri || "";
+    let place_id = loc?.metadata?.placeId || "";
 
-    let curByDate, prevByDate;
+    // Fallback, falls im listLocations nicht befüllt
+    if (!maps_uri && !new_review_uri && !place_id) {
+      try {
+        const meta = await getLocationMetadata(accessToken, locationId);
+        maps_uri = meta?.mapsUri || "";
+        new_review_uri = meta?.newReviewUri || "";
+        place_id = meta?.placeId || "";
+      } catch {
+        // fail-soft: Metadata ist nice-to-have, Reviews sind core
+      }
+    }
+
+    // Optional: stabiler Maps-Link aus placeId (falls du lieber standardisieren willst)
+    const maps_place_url = place_id
+      ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(place_id)}`
+      : null;
+
+    let reviews;
     try {
-      curByDate  = await fetchPeriodByDate(accessToken, locationId, curStart,  curEnd);
-      prevByDate = await fetchPeriodByDate(accessToken, locationId, prevStart, prevEnd);
+      reviews = await listReviewsForLocation(accessToken, ENV.GBP_ACCOUNT_ID, locationId, start, end);
     } catch (e) {
-      console.warn(`  ⚠ ${standort}: ${e.message}`);
-      skipped.push(standort);
+      console.log(`- ERROR reviews ${storeCode || locationTitle || locationId}: ${e.message}`);
       return;
     }
 
-    const curDates = [...new Set([...Object.keys(curByDate)])].sort();
-    if (!curDates.length) return;
-    console.log(`  ✓ ${standort}: ${curDates.length} Tage`);
+    if (!reviews.length) return;
 
-    // --- locationTotals (lowercase, Wochensumme) ---
-    const locTotal = { Standort: standort, ...ZERO() };
-    for (const d of curDates) addTo(locTotal, curByDate[d] || ZERO());
-    locationTotals.push(locTotal);
-    addTo(totalSum, locTotal);
+    console.log(`- ${storeCode || locationTitle || locationId}: ${reviews.length} review(s)`);
 
-    // --- Für jede Tag der aktuellen Woche ---
-    for (let i = 0; i < curDates.length; i++) {
-      const date    = curDates[i];
-      const cur     = curByDate[date]  || ZERO();
+    for (const r of reviews) {
+      const reviewName = (r.name || "").trim();
+      const reviewId = reviewName.split("/").pop() || "";
 
-      // Vorperiode: gleicher Wochentag-Offset (Tag 0 der cur = Tag 0 der prev)
-      const prevDates = [...new Set([...Object.keys(prevByDate)])].sort();
-      const prev    = prevByDate[prevDates[i]] || ZERO();
+      const rating = starRatingToInt(r.starRating);
+      const reviewerObj = r.reviewer || {};
+      const reviewer = (reviewerObj.displayName || reviewerObj.profileName || "").trim();
 
-      // --- locationByDates (kapitalisiert, Leerzeichen) ---
-      locationByDates.push({
-        Standort:           standort,
-        Datum:              date,
-        Views:              cur.views,
-        Actions:            cur.actions,
-        "Views Search":     cur.views_search,
-        "Views Maps":       cur.views_maps,
-        "Actions Website":  cur.actions_website,
-        "Actions Phone":    cur.actions_phone,
-        "Actions Directions": cur.actions_driving_directions,
-      });
+      const createdBerlin = DateTime.fromISO(r.createTime, { setZone: true }).setZone(TZ);
+      const reviewed_at = createdBerlin.toFormat("dd.MM.yyyy HH:mm:ss");
 
-      // --- combinedInsightsByDate (lowercase + prev_*) ---
-      combinedInsightsByDate.push({
-        Standort:                       standort,
-        views:                          cur.views,
-        actions:                        cur.actions,
-        views_search:                   cur.views_search,
-        views_maps:                     cur.views_maps,
-        actions_website:                cur.actions_website,
-        actions_phone:                  cur.actions_phone,
-        actions_driving_directions:     cur.actions_driving_directions,
-        date,
-        prev_views:                     prev.views,
-        prev_actions:                   prev.actions,
-        prev_views_search:              prev.views_search,
-        prev_views_maps:                prev.views_maps,
-        prev_actions_website:           prev.actions_website,
-        prev_actions_phone:             prev.actions_phone,
-        prev_actions_driving_directions: prev.actions_driving_directions,
-      });
+      const commentClean = cleanComment(r.comment || "");
+      const comment_full = buildCommentFull(commentClean, reviewer, reviewed_at);
 
-      // --- byDateSumMap (kapitalisiert) ---
-      if (!byDateSumMap.has(date)) {
-        byDateSumMap.set(date, {
-          Datum: date, Views: 0, Actions: 0,
-          "Views Search": 0, "Views Maps": 0,
-          "Actions Website": 0, "Actions Phone": 0, "Actions Directions": 0,
+      let rid = "";
+      let smart_reply_url = "";
+      let prefill_error = "";
+
+      try {
+        rid = await createPrefillRid({
+          review: comment_full,
+          rating: rating ? String(rating) : "",
+
+          reviewer,
+          reviewed_at,
+          accountId: ENV.GBP_ACCOUNT_ID,
+          locationId,
+          reviewId,
+          storeCode,
+          locationTitle,
+
+          // NEW: Links/IDs für Location
+          maps_uri: maps_uri || "",
+          new_review_uri: new_review_uri || "",
+          place_id: place_id || "",
+          maps_place_url: maps_place_url || "",
         });
+        smart_reply_url = `${ENV.PUBLIC_APP_URL.replace(/\/$/, "")}/?rid=${rid}`;
+      } catch (e) {
+        prefill_error = e.message || String(e);
       }
-      const row = byDateSumMap.get(date);
-      row.Views               += cur.views;
-      row.Actions             += cur.actions;
-      row["Views Search"]     += cur.views_search;
-      row["Views Maps"]       += cur.views_maps;
-      row["Actions Website"]  += cur.actions_website;
-      row["Actions Phone"]    += cur.actions_phone;
-      row["Actions Directions"] += cur.actions_driving_directions;
+
+      items.push({
+        storeCode: storeCode || null,
+        locationTitle: locationTitle || null,
+        locationId,
+        reviewId: reviewId || null,
+        rating: rating ?? null,
+        reviewer: reviewer || null,
+        reviewed_at,
+        comment: commentClean || null,
+        comment_full,
+        prefill_rid: rid || null,
+        smart_reply_url: smart_reply_url || null,
+        prefill_error: prefill_error || null,
+
+        // NEW: Links/IDs für Location
+        maps_uri: maps_uri || null,
+        new_review_uri: new_review_uri || null,
+        place_id: place_id || null,
+        maps_place_url: maps_place_url || null,
+      });
+
+      await sleep(60);
     }
   });
 
-  const byDate = [...byDateSumMap.values()].sort((a, b) => a.Datum.localeCompare(b.Datum));
+  console.log(`\n✓ total reviews (yesterday): ${items.length}`);
 
-  locationTotals.sort((a, b)         => a.Standort.localeCompare(b.Standort));
-  locationByDates.sort((a, b)        => a.Standort.localeCompare(b.Standort) || a.Datum.localeCompare(b.Datum));
-  combinedInsightsByDate.sort((a, b) => a.Standort.localeCompare(b.Standort) || a.date.localeCompare(b.date));
+  // 4) Send to Make (chunked)
+  console.log("\n4) Send to Make …");
 
-  console.log(`\n✓ Standorte: ${locationTotals.length} | Tageszeilen: ${locationByDates.length}`);
-  if (skipped.length) console.log(`⚠ Übersprungen: ${skipped.join(", ")}`);
+  const chunks = chunkArray(items, ENV.MAKE_BATCH_SIZE);
+  const metaBase = {
+    source: "google_business_profile",
+    timezone: TZ,
+    range_start: start.toISO(),
+    range_end: end.toISO(),
+    generated_at: DateTime.now().setZone(TZ).toISO(),
+    account_id: ENV.GBP_ACCOUNT_ID,
+    locations_total: locations.length,
+    count_total: items.length,
+  };
 
-  // -------------------- CSV Export (exakt wie omlocal) --------------------
-  const prefix = `gbp-weekly-${dateFrom}_bis_${dateTo}`;
-  fs.writeFileSync(`${prefix}_location_total.csv`,   "\uFEFF" + Papa.unparse(locationTotals));
-  fs.writeFileSync(`${prefix}_location_bydate.csv`,  "\uFEFF" + Papa.unparse(locationByDates));
-  fs.writeFileSync(`${prefix}_total.csv`,            "\uFEFF" + Papa.unparse([totalSum]));
-  fs.writeFileSync(`${prefix}_bydate.csv`,           "\uFEFF" + Papa.unparse(byDate));
-  fs.writeFileSync(`${prefix}_combined_bydate.csv`,  "\uFEFF" + Papa.unparse(combinedInsightsByDate));
-  console.log(`\n📄 CSVs gespeichert (${prefix}_*.csv)`);
+  if (chunks.length === 0) chunks.push([]);
 
-  // -------------------- Make Webhook --------------------
-  if (ENV.MAKE_INSIGHTS_WEBHOOK_URL_DAILY) {
-    const res = await requestWithRetry(ENV.MAKE_INSIGHTS_WEBHOOK_URL_DAILY, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type:                   "full",
-        dateFrom,
-        dateTo,
-        locationTotals,
-        locationByDates,
-        total:                  totalSum,
-        byDate,
-        combinedInsightsByDate,
-        skipped,
-      }),
-    });
-    const txt = await res.text().catch(() => "");
-    console.log(`🚀 Make Webhook → ${res.status} ${txt.slice(0, 100)}`);
-  } else {
-    console.log("ℹ️  MAKE_INSIGHTS_WEBHOOK_URL_DAILY nicht gesetzt – Webhook übersprungen");
+  for (let i = 0; i < chunks.length; i++) {
+    const payload = {
+      ...metaBase,
+      batch_index: i + 1,
+      batch_total: chunks.length,
+      count: chunks[i].length,
+      data: chunks[i],
+    };
+    await postToMake(payload);
   }
 
-  console.log("\n✅ Fertig");
+  console.log("✓ done");
 }
 
 main().catch((e) => {
-  console.error("\n❌ ERROR:", e?.message || e);
+  console.error("\nERROR:", e?.message || e);
   process.exit(1);
 });
