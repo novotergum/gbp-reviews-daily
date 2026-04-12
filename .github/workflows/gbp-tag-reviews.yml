@@ -1,7 +1,12 @@
 name: GBP Tag Reviews -> Make
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      date_override:
+        description: "Backfill specific day (YYYY-MM-DD). Leave empty for yesterday."
+        required: false
+        default: ""
   schedule:
     - cron: "30 4 * * *" # UTC
 
@@ -35,6 +40,8 @@ jobs:
           PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
 
           MAKE_TAG_REVIEWS_WEBHOOK_URL: ${{ secrets.MAKE_TAG_REVIEWS_WEBHOOK_URL }}
+
+          DATE_OVERRIDE: ${{ inputs.date_override }}
 
           CONCURRENCY: "5"
           MAKE_BATCH_SIZE: "200"

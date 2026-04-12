@@ -34,11 +34,15 @@ function mask(s) {
 const TZ = "Europe/Berlin";
 
 function getYesterdayRangeBerlin() {
-  const now = DateTime.now().setZone(TZ);
-  const y = now.minus({ days: 1 });
-  const start = y.startOf("day");
-  const end = y.endOf("day");
-  return { start, end };
+  const override = (process.env.DATE_OVERRIDE || "").trim();
+  let target;
+  if (override) {
+    target = DateTime.fromISO(override, { zone: TZ });
+    if (!target.isValid) throw new Error(`Invalid DATE_OVERRIDE: ${override} (use YYYY-MM-DD)`);
+  } else {
+    target = DateTime.now().setZone(TZ).minus({ days: 1 });
+  }
+  return { start: target.startOf("day"), end: target.endOf("day") };
 }
 
 // -------------------- HTTP Helpers --------------------
