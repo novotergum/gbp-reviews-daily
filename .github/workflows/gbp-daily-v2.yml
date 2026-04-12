@@ -21,7 +21,7 @@ jobs:
         run: npm install
 
       - name: 📄 Daily Insights ausführen
-        run: npm run gbp:insights:daily
+        run: npm run gbp:daily:v2
         env:
           GBP_CLIENT_ID:                   ${{ secrets.GBP_CLIENT_ID }}
           GBP_CLIENT_SECRET:               ${{ secrets.GBP_CLIENT_SECRET }}
