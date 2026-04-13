@@ -26,12 +26,11 @@ const TZ = "Europe/Berlin";
 
 function getLast12MonthsRange() {
   const today = DateTime.now().setZone(TZ).startOf("day");
-
-  const weekday = today.weekday; // 1=Mo … 7=So
+  const weekday = today.weekday;
   const lastMonday = today.minus({ days: weekday - 1 });
-  const end = lastMonday.minus({ days: 1 }); // letzter Sonntag
+  const end = lastMonday.minus({ days: 1 }).endOf("day"); // ← fix
 
-  const start = end.minus({ years: 1 }).plus({ days: 1 });
+  const start = end.minus({ years: 1 }).plus({ days: 1 }).startOf("day");
 
   return { start, end };
 }
